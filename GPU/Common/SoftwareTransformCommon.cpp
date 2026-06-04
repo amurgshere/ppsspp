@@ -473,21 +473,23 @@ void SoftwareTransform::BuildDrawingParams(int prim, int vertexCount, u32 vertTy
 			u16 *newInds = inds + vertexCount;
 			u16 *indsOut = newInds;
 
-			float minZValue, maxZValue;
-			CalcCullParams(minZValue, maxZValue);
-
 			std::vector<int> outsideZ;
 			outsideZ.resize(vertexCount);
 
 			// First, check inside/outside directions for each index.
+			// We are still in clip space here, so we can cull aggressively in Z.
+			// See the comment in VertexShader for the epsilons
 			for (int i = 0; i < vertexCount; ++i) {
-				float z = transformed[indsIn[i]].z / transformed[indsIn[i]].pos_w;
-				if (z > maxZValue)
+				float z = transformed[indsIn[i]].z;
+				float w = transformed[indsIn[i]].pos_w;
+				const float delta = 0.0000304f / w;
+				if (z > w + delta) {
 					outsideZ[i] = 1;
-				else if (z < minZValue)
+				} else if (z < -(w + delta)) {
 					outsideZ[i] = -1;
-				else
+				} else {
 					outsideZ[i] = 0;
+				}
 			}
 
 			// Now, for each primitive type, throw away the indices if:
