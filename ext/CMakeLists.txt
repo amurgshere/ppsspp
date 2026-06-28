@@ -52,7 +52,7 @@ endif()
 if(NOT HTTPS_NOT_AVAILABLE)
 	add_subdirectory(naett-build)
 endif()
-if(USE_DISCORD AND NOT IOS AND NOT LIBRETRO)
+if(USE_DISCORD AND NOT IOS AND NOT LIBRETRO AND NOT USE_LIBNX)
 	add_subdirectory(discord-rpc-build)
 endif()
 

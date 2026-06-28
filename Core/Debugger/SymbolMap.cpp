@@ -1068,7 +1068,7 @@ void SymbolMap::GetLabels(std::vector<LabelDefinition> &dest) {
 		entry.value = it->first;
 		std::string name = it->second.name;
 		std::transform(name.begin(), name.end(), name.begin(), ::tolower);
-		entry.name = Identifier(name);
+		entry.name = std::wstring(name.begin(), name.end());
 		dest.push_back(entry);
 	}
 }

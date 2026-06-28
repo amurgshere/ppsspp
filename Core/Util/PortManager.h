@@ -29,9 +29,9 @@
 #ifndef MINIUPNP_STATICLIB
 #define MINIUPNP_STATICLIB
 #endif
-#include "ext/miniupnp/miniupnpc/include/miniwget.h"
-#include "ext/miniupnp/miniupnpc/include/miniupnpc.h"
-#include "ext/miniupnp/miniupnpc/include/upnpcommands.h"
+#include "ext/miniupnp/miniupnpc/miniwget.h"
+#include "ext/miniupnp/miniupnpc/miniupnpc.h"
+#include "ext/miniupnp/miniupnpc/upnpcommands.h"
 #endif
 
 #include <string>

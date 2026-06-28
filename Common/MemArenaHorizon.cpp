@@ -24,6 +24,8 @@
 static uintptr_t memoryBase = 0;
 static uintptr_t memoryCodeBase = 0;
 static uintptr_t memorySrcBase = 0;
+static VirtmemReservation *memoryBaseReservation = nullptr;
+static VirtmemReservation *memoryCodeBaseReservation = nullptr;
 
 size_t MemArena::roundup(size_t x) {
 	return x;
@@ -66,11 +68,21 @@ void MemArena::ReleaseView(s64 offset, void *view, size_t size) {
 u8 *MemArena::Find4GBBase() {
 	memorySrcBase = (uintptr_t)memalign(0x1000, 0x10000000);
 
-	if (!memoryBase)
-		memoryBase = (uintptr_t)virtmemReserve(0x10000000);
+	if (!memoryBase) {
+		virtmemLock();
+		void *found = virtmemFindAslr(0x10000000, 0);
+		memoryBaseReservation = virtmemAddReservation(found, 0x10000000);
+		virtmemUnlock();
+		memoryBase = (uintptr_t)found;
+	}
 
-	if (!memoryCodeBase)
-		memoryCodeBase = (uintptr_t)virtmemReserve(0x10000000);
+	if (!memoryCodeBase) {
+		virtmemLock();
+		void *found = virtmemFindAslr(0x10000000, 0);
+		memoryCodeBaseReservation = virtmemAddReservation(found, 0x10000000);
+		virtmemUnlock();
+		memoryCodeBase = (uintptr_t)found;
+	}
 
 	if (R_FAILED(svcMapProcessCodeMemory(envGetOwnProcessHandle(), (u64)memoryCodeBase, (u64)memorySrcBase, 0x10000000)))
 		printf("Failed to map memory...\n");

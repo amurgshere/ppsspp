@@ -7,6 +7,7 @@
 #include "Common/CommonTypes.h"
 #include "ext/armips/Core/Assembler.h"
 #include "ext/armips/Core/FileManager.h"
+#include "ext/armips/Util/Util.h"
 #include "Core/Debugger/SymbolMap.h"
 #include "Core/MemMapHelpers.h"
 #include "Core/MIPS/MIPSAsm.h"
@@ -42,21 +43,23 @@ public:
 		return true;
 	}
 	bool seekPhysical(int64_t physicalAddress) override { return seekVirtual(physicalAddress); }
-	const fs::path &getFileName() override { return dummyFilename_; }
+	const std::wstring &getFileName() override { return dummyFilename_; }
 private:
 	u64 address;
-	fs::path dummyFilename_;
+	std::wstring dummyFilename_;
 };
 
 bool MipsAssembleOpcode(std::string_view line, DebugInterface *cpu, u32 address, std::string *error) {
-	std::vector<std::string> errors;
+	StringList errors;
 
 	char str[64];
 	snprintf(str, 64, ".psp\n.org 0x%08X\n", address);
 
+	std::string content = str + std::string(line);
+
 	ArmipsArguments args;
 	args.mode = ArmipsMode::MEMORY;
-	args.content = str + std::string(line);
+	args.content = std::wstring(content.begin(), content.end());
 	args.silent = true;
 	args.memoryFile.reset(new PspAssemblerFile());
 	args.errorsResult = &errors;
@@ -68,7 +71,8 @@ bool MipsAssembleOpcode(std::string_view line, DebugInterface *cpu, u32 address,
 	error->clear();
 	if (!runArmips(args)) {
 		for (size_t i = 0; i < errors.size(); i++) {
-			(*error) += errors[i];
+			std::wstring &we = errors[i];
+			(*error) += std::string(we.begin(), we.end());
 			if (i != errors.size() - 1)
 				error->push_back('\n');
 		}

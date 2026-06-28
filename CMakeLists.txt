@@ -282,6 +282,7 @@ endif()
 
 # Work around for some misfeature of the current glslang build system
 include_directories(ext/glslang)
+include_directories(${CMAKE_BINARY_DIR}/include)
 
 # Not sure if this is the best way - what about system glew?
 # Anyway, glew will be going away anyway.
@@ -2614,6 +2615,9 @@ if(FFmpeg_FOUND)
 		FFmpeg::swscale
 		${ZLIB_LIBRARY}
 	)
+	if(USE_LIBNX)
+		target_link_libraries(${CoreLibName} /opt/devkitpro/portlibs/switch/lib/libdav1d.a)
+	endif()
 endif()
 
 # Discord integration
