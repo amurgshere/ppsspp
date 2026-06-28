@@ -61,6 +61,8 @@ AxisType GetAxisType(InputAxis input) {
 	case JOYSTICK_AXIS_RX:
 	case JOYSTICK_AXIS_RY:
 	case JOYSTICK_AXIS_RZ:
+	case JOYSTICK_AXIS_PRESSURE:  // Switch right stick X
+	case JOYSTICK_AXIS_SIZE:      // Switch right stick Y
 		return AxisType::STICK;
 	default:
 		return AxisType::OTHER;

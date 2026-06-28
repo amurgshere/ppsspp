@@ -34,6 +34,10 @@ static InputAxis GetCoAxis(InputAxis axis) {
 	case JOYSTICK_AXIS_RX: return JOYSTICK_AXIS_RY;
 	case JOYSTICK_AXIS_RY: return JOYSTICK_AXIS_RX;
 
+	// Switch reports right stick as Pressure/Size axes
+	case JOYSTICK_AXIS_PRESSURE: return JOYSTICK_AXIS_SIZE;
+	case JOYSTICK_AXIS_SIZE: return JOYSTICK_AXIS_PRESSURE;
+
 	default:
 		return JOYSTICK_AXIS_MAX; // invalid
 	}
