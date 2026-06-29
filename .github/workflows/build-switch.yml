@@ -24,7 +24,7 @@ jobs:
 
       - name: Install Switch libraries
         run: |
-          dkp-pacman -S --noconfirm \
+          dkp-pacman -S --noconfirm --needed \
             switch-sdl2 switch-ffmpeg switch-dav1d switch-miniupnpc \
             switch-freetype switch-libpng switch-zlib switch-mesa
 
