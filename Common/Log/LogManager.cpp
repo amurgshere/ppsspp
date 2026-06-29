@@ -197,15 +197,20 @@ void LogManager::SetFileLogPath(const Path &filename) {
 
 	if (fp_) {
 		fclose(fp_);
+		fp_ = nullptr;
 	}
 
-	if (!filename.empty() && (outputs_ & LogOutput::File)) {
-		logFilename_ = Path(filename);
+	// Always store the path so it's available when File output is enabled later.
+	if (!filename.empty()) {
+		logFilename_ = filename;
+	}
+
+	if (!logFilename_.empty() && (outputs_ & LogOutput::File)) {
 		File::CreateFullPath(logFilename_.NavigateUp());
 		fp_ = File::OpenCFile(logFilename_, "at");
 		logFileOpenFailed_ = fp_ == nullptr;
 		if (logFileOpenFailed_) {
-			printf("Failed to open log file %s\n", filename.c_str());
+			printf("Failed to open log file %s\n", logFilename_.c_str());
 		}
 	}
 }
