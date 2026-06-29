@@ -149,6 +149,26 @@ void JoystickHistoryView::Draw(UIContext &dc) {
 		}
 		a++;
 	}
+
+	// Draw secondary stick trail (right stick) in cyan.
+	if (hasSecondary_) {
+		int b = maxCount_ - (int)locations2_.size();
+		for (auto iter = locations2_.begin(); iter != locations2_.end(); ++iter) {
+			float x = bounds_.centerX() + minRadius * iter->x;
+			float y = bounds_.centerY() - minRadius * iter->y;
+			float alpha = (float)b / (float)(maxCount_ - 1);
+			if (alpha < 0.0f) {
+				alpha = 0.0f;
+			}
+			alpha = powf(alpha, 3.7f);
+			if (alpha >= 1.0f && type_ != StickHistoryViewType::INPUT) {
+				dc.Draw()->DrawImage(ImageID("I_CIRCLE"), x, y, 1.0f, colorAlpha(0x00FFFF, 1.0), ALIGN_CENTER);
+			} else {
+				dc.Draw()->DrawImage(ImageID("I_CIRCLE"), x, y, 0.8f, colorAlpha(0x00CCCC, alpha * 0.5f), ALIGN_CENTER);
+			}
+			b++;
+		}
+	}
 	dc.Flush();
 }
 
@@ -156,5 +176,11 @@ void JoystickHistoryView::Update() {
 	locations_.push_back(Location{ curX_, curY_ });
 	if ((int)locations_.size() > maxCount_) {
 		locations_.pop_front();
+	}
+	if (hasSecondary_) {
+		locations2_.push_back(Location{ curX2_, curY2_ });
+		if ((int)locations2_.size() > maxCount_) {
+			locations2_.pop_front();
+		}
 	}
 }

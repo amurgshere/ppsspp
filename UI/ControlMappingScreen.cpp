@@ -502,13 +502,13 @@ AnalogCalibrationScreen::AnalogCalibrationScreen(const Path &gamePath) : UITwoPa
 
 void AnalogCalibrationScreen::update() {
 	mapper_.Update(g_Config.GetDisplayLayoutConfig(GetDeviceOrientation()), time_now_d());
-	// We ignore the secondary stick for now and just use the two views
-	// for raw and psp input.
 	if (stickView_[0]) {
 		stickView_[0]->SetXY(analogX_[0], analogY_[0]);
+		stickView_[0]->SetXY2(analogX_[1], analogY_[1]);
 	}
 	if (stickView_[1]) {
 		stickView_[1]->SetXY(rawX_[0], rawY_[0]);
+		stickView_[1]->SetXY2(rawX_[1], rawY_[1]);
 	}
 	UIScreen::update();
 }
@@ -537,7 +537,7 @@ void AnalogCalibrationScreen::axis(const AxisInput &axis) {
 
 std::string_view AnalogCalibrationScreen::GetTitle() const {
 	auto co = GetI18NCategory(I18NCat::CONTROLS);
-	return co->T("Calibrate analog stick");
+	return co->T("Calibrate emulated analog sticks");
 }
 
 void AnalogCalibrationScreen::CreateSettingsViews(UI::ViewGroup *scrollContents) {

@@ -22,6 +22,11 @@ public:
 		curX_ = x;
 		curY_ = y;
 	}
+	void SetXY2(float x, float y) {
+		curX2_ = x;
+		curY2_ = y;
+		hasSecondary_ = true;
+	}
 
 private:
 	struct Location {
@@ -31,8 +36,12 @@ private:
 
 	float curX_ = 0.0f;
 	float curY_ = 0.0f;
+	float curX2_ = 0.0f;
+	float curY2_ = 0.0f;
+	bool hasSecondary_ = false;
 
 	std::deque<Location> locations_;
+	std::deque<Location> locations2_;
 	int maxCount_ = 500;
 	std::string title_;
 	StickHistoryViewType type_;
