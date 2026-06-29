@@ -1391,9 +1391,7 @@ static int sceMpegRingbufferAvailableSize(u32 ringbufferAddr) {
 		return hleLogError(Log::Mpeg, SCE_MPEG_ERROR_NOT_YET_INIT, "bad mpeg handle");
 	}
 
-	if (ctx->mediaengine) {
-		ringbuffer->packetsAvail = ringbuffer->packets - ctx->mediaengine->getRemainSize() / 2048;
-	}
+	ctx->mpegRingbufferAddr = ringbufferAddr;
 
 	hleEatCycles(2020);
 	hleReSchedule("mpeg ringbuffer avail");
@@ -1603,6 +1601,7 @@ static int sceMpegGetAvcAu(u32 mpeg, u32 streamId, u32 auAddr, u32 attrAddr)
 	if (ctx->mediaengine->IsVideoEnd()) {
 		INFO_LOG(Log::Mpeg, "video end reach. pts: %i dts: %i", (int)avcAu.pts, (int)ctx->mediaengine->getLastTimeStamp());
 		avcAu.dts = -1;
+		ringbuffer->packetsAvail = 0;
 		result = SCE_MPEG_ERROR_NO_DATA;
 	}
 
@@ -1697,8 +1696,11 @@ static int sceMpegGetAtracAu(u32 mpeg, u32 streamId, u32 auAddr, u32 attrAddr)
 	atracAu.pts = ctx->mediaengine->getAudioTimeStamp() + ctx->mpegFirstTimestamp;
 	atracAu.dts = atracAu.pts;
 
-	if (ctx->mediaengine->IsNoAudioData()) {
+	if (ctx->mediaengine->IsVideoEnd() || ctx->mediaengine->IsNoAudioData()) {
 		atracAu.dts = -1;
+		if (ctx->mediaengine->IsVideoEnd()) {
+			ringbuffer->packetsAvail = 0;
+		}
 		result = SCE_MPEG_ERROR_NO_DATA;
 	}
 
@@ -1882,11 +1884,6 @@ static u32 sceMpegAtracDecode(u32 mpeg, u32 auAddr, u32 bufferAddr, int init)
 	atracAu.pts = ctx->mediaengine->getAudioTimeStamp() + ctx->mpegFirstTimestamp;
 
 	atracAu.write(auAddr);
-
-	auto ringbuffer = PSPPointer<SceMpegRingBuffer>::Create(ctx->mpegRingbufferAddr);
-	if (ringbuffer.IsValid()) {
-		ringbuffer->packetsAvail = ringbuffer->packets - ctx->mediaengine->getRemainSize() / 2048;
-	}
 
 	return hleDelayResult(hleLogDebug(Log::Mpeg, 0), "mpeg atrac decode", atracDecodeDelayMs);
 	//hleEatMicro(4000);
