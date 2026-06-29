@@ -391,7 +391,7 @@ void SoftwareTransform::Transform(int prim, u32 vertType, const DecVtxFormat &de
 			DepthScaleFactors depthScale = GetDepthScaleFactors(gstate_c.UseFlags());
 			result->color = transformed[1].color0_32;
 			// Need to rescale from a [0, 1] float.  This is the final transformed value.
-			result->depth = depthScale.EncodeFromU16((float)(int)(transformed[1].z * 65535.0f));
+			result->depth = depthScale.EncodeFromU16(transformed[1].z);
 			result->action = SW_CLEAR;
 			gpuStats.numClears++;
 			return;
