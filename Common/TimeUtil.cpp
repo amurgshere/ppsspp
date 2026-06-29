@@ -228,10 +228,10 @@ double time_now_unix_utc() {
 }
 
 Instant::Instant() {
-	struct timeval tv;
-	gettimeofday(&tv, nullptr);
-	nativeStart_ = tv.tv_sec;
-	nsecs_ = tv.tv_usec;
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	nativeStart_ = ts.tv_sec;
+	nsecs_ = ts.tv_nsec;
 }
 
 int64_t Instant::ElapsedNanos() const {
@@ -239,12 +239,12 @@ int64_t Instant::ElapsedNanos() const {
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 
 	int64_t secs = ts.tv_sec - nativeStart_;
-	int64_t usecs = ts.tv_nsec - nsecs_;
-	if (usecs < 0) {
+	int64_t nsecs = ts.tv_nsec - nsecs_;
+	if (nsecs < 0) {
 		secs--;
-		usecs += 1000000;
+		nsecs += 1000000000;
 	}
-	return secs * 1000000000 + usecs * 1000;
+	return secs * 1000000000 + nsecs;
 }
 
 double Instant::ElapsedSeconds() const {

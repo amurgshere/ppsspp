@@ -675,6 +675,7 @@ void CreditsScroller::Draw(UIContext &dc) {
 		"Lubos",
 		"stenzek",  // For retroachievements integration
 		"fp64",
+		"Aaron Murgatroyd (TheToid)",
 		"",
 		cr->T("specialthanks", "Special thanks to:"),
 		specialthanksMaxim,
