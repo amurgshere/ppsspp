@@ -16,6 +16,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
+
+      - name: Fetch version tags
+        run: |
+          git remote add hrydgard https://github.com/hrydgard/ppsspp.git
+          git fetch hrydgard --tags
 
       - name: Install dependencies
         run: |
