@@ -1,0 +1,58 @@
+name: Build Switch NRO
+
+on:
+  push:
+    branches: [switch-enhancements]
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.repository == 'amurgshere/ppsspp'
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y \
+            build-essential cmake git python3 pkg-config libarchive-tools gettext
+
+      - name: Install Switch libraries
+        run: |
+          dkp-pacman -S --noconfirm \
+            switch-sdl2 switch-ffmpeg switch-dav1d switch-miniupnpc \
+            switch-freetype switch-libpng switch-zlib switch-mesa
+
+      - name: Configure CMake
+        run: |
+          mkdir build-switch && cd build-switch && \
+          cmake .. \
+            -DUSE_LIBNX=ON \
+            -DUSING_X11_VULKAN=OFF \
+            -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/Switch.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS_RELEASE='-Oz -flto -DNDEBUG' \
+            -DCMAKE_CXX_FLAGS_RELEASE='-Oz -flto -DNDEBUG' \
+            -DCMAKE_EXE_LINKER_FLAGS_RELEASE='-Wl,--strip-all'
+
+      - name: Build
+        run: make -C build-switch -j$(nproc)
+
+      - name: Generate NRO
+        run: |
+          nacptool --create 'PPSSPP' 'PPSSPP Team' '1.19.3' build-switch/PPSSPP_GL.nacp
+          elf2nro build-switch/PPSSPPSDL.elf build-switch/PPSSPP_GL.nro \
+            --nacp=build-switch/PPSSPP_GL.nacp \
+            --icon=icons/icon-512.jpg
+
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: PPSSPP_GL-${{ github.sha }}
+          path: build-switch/PPSSPP_GL.nro
+          retention-days: 30
