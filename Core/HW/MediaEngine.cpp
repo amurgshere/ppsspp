@@ -231,6 +231,8 @@ int MediaEngine::MpegReadbuffer(void *opaque, uint8_t *buf, int buf_size) {
 		size = mpeg->m_pdata->pop_front(buf, buf_size);
 		if (size > 0)
 			mpeg->m_decodingsize = size;
+		else
+			return AVERROR_EOF;
 	}
 	return size;
 }
