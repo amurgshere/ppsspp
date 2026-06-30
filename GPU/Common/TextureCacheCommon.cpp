@@ -759,10 +759,12 @@ bool TextureCacheCommon::GetBestFramebufferCandidate(const TextureDefinition &en
 			continue;
 		}
 
-		// Avoid binding as texture the framebuffer we're rendering to.
-		// In Killzone, we split the framebuffer but the matching algorithm can still pick the wrong one,
-		// which this avoids completely.
-		if (kzCompat && candidate.fb == framebufferManager_->GetCurrentRenderVFB()) {
+		// Only exclude the current render VFB when matched via a non-zero offset (the margin-strip
+		// case). An exact address match (offset 0) is a legitimate self-read handled by the
+		// framebuffer copy path; excluding it here leaves only the margin strip as candidate,
+		// causing the shimmer/comb artifact (issue #6207).
+		if (kzCompat && candidate.fb == framebufferManager_->GetCurrentRenderVFB()
+			&& (candidate.match.xOffset != 0 || candidate.match.yOffset != 0)) {
 			continue;
 		}
 
