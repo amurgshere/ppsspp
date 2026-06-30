@@ -9,6 +9,13 @@ jobs:
   build:
     if: github.repository == 'amurgshere/ppsspp'
     runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - platform: x64
+            artifact: PPSSPP-Windows-x64
+          - platform: ARM64
+            artifact: PPSSPP-Windows-ARM64
 
     steps:
       - uses: actions/checkout@v4
@@ -44,19 +51,19 @@ jobs:
           }
 
       - name: Build
-        run: msbuild /m /p:TrackFileAccess=false /p:Configuration=Release /p:Platform=x64 Windows/PPSSPP.sln
+        run: msbuild /m /p:TrackFileAccess=false /p:Configuration=Release /p:Platform=${{ matrix.platform }} Windows/PPSSPP.sln
 
       - name: Package
         shell: pwsh
         run: |
           mkdir ppsspp
           Copy-Item PPSSPP*.exe ppsspp/ -ErrorAction SilentlyContinue
-          Copy-Item Windows/x64/Release/*.exe ppsspp/ -ErrorAction SilentlyContinue
+          Copy-Item Windows/${{ matrix.platform }}/Release/*.exe ppsspp/ -ErrorAction SilentlyContinue
           Copy-Item -Recurse assets ppsspp/assets
 
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
-          name: PPSSPP-Windows-x64-${{ github.sha }}
+          name: ${{ matrix.artifact }}-${{ github.sha }}
           path: ppsspp/
           retention-days: 30
