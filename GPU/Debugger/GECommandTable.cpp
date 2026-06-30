@@ -15,7 +15,9 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
-#include <strings.h> // strcasecmp on Switch
+#ifndef _WIN32
+#include <strings.h> // strcasecmp
+#endif
 #include "Common/Common.h"
 #include "Common/Log.h"
 #include "GPU/Debugger/GECommandTable.h"

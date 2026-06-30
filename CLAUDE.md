@@ -54,6 +54,7 @@ docker exec ppsspp-build bash -lc "
     -DCMAKE_C_FLAGS_RELEASE='-Oz -flto -DNDEBUG' \
     -DCMAKE_CXX_FLAGS_RELEASE='-Oz -flto -DNDEBUG' \
     -DCMAKE_EXE_LINKER_FLAGS_RELEASE='-Wl,--strip-all' \
+    -DARMIPS_USE_STD_FILESYSTEM=ON \
     2>&1 | tail -10"
 ```
 
@@ -63,6 +64,7 @@ docker exec ppsspp-build bash -lc "
 - `CMAKE_TOOLCHAIN_FILE` required — sets up devkitA64 cross-compiler, libnx headers, `-specs=switch.specs`
 - Never pass `-DCMAKE_EXE_LINKER_FLAGS` — it overrides the toolchain's library paths and causes `-lnx not found`. Use `_RELEASE` suffixed variants only.
 - Always wipe build-switch/ fully before reconfiguring — partial state breaks SDL2/libnx detection
+- `-DARMIPS_USE_STD_FILESYSTEM=ON` required — updated armips uses `ext/filesystem` (ghc) by default, which isn't compatible with libnx; this switches it to `std::filesystem` (GCC 15 supports it fine)
 
 
 
