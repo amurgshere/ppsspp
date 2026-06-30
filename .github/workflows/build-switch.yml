@@ -2,7 +2,7 @@ name: Build Switch NRO
 
 on:
   push:
-    branches: [switch-enhancements, all-platforms-reintegration]
+    branches: [switch-enhancements]
   workflow_dispatch:
 
 jobs:

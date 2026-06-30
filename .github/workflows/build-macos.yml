@@ -2,7 +2,7 @@ name: Build macOS
 
 on:
   push:
-    branches: [all-platforms-reintegration]
+    branches: [switch-enhancements]
   workflow_dispatch:
 
 jobs:
