@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "ppsspp_config.h"
 
@@ -10,11 +10,14 @@
 #include <GLES2/gl2ext.h>
 #define GL_BGRA_EXT 0x80E1
 #else // OpenGL
-//#include "GL/glew.h"
+#if PPSSPP_PLATFORM(SWITCH)
 #include <glsym/switch/nx_gl.h>
 #include <GL/glext.h>
 #include <glsym/switch/nx_glsym.h>
 #include <glsym/glsym_gl.h>
+#else
+#include "GL/glew.h"
+#endif
 #if defined(__APPLE__)
 #include <OpenGL/gl.h>
 #else
