@@ -1,0 +1,59 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [all-platforms-reintegration]
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.repository == 'amurgshere/ppsspp'
+    name: Build IPA
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Fetch version tags
+        run: |
+          git fetch --deepen=15000 --no-recurse-submodules --tags || true
+          count=$(git tag -l 'v[0-9]*' | wc -l | tr -d ' ')
+          if [ "$count" = "0" ]; then
+            git remote add hrydgard https://github.com/hrydgard/ppsspp.git
+            git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
+          fi
+
+      - name: Set version
+        run: echo "GIT_VERSION=$(git describe --always)" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: brew install ldid dpkg
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@5ebbd400eff9e74630f759d94ddd7b6c26299639
+        with:
+          key: ios
+          create-symlink: true
+
+      - name: Build
+        env:
+          CC: clang
+          CXX: clang++
+          USE_CCACHE: 1
+        run: |
+          export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
+          export CCACHE_SLOPPINESS=pch_defines,clang_index_store,ivfsoverlay,include_file_ctime,include_file_mtime,modules,system_headers,time_macros
+          export CCACHE_FILECLONE=true
+          export CCACHE_DEPEND=true
+          export CCACHE_COMPILERCHECK=content
+          ./b-ios.sh
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v5
+        with:
+          name: PPSSPP-iOS-${{ github.sha }}
+          path: build/PPSSPP-iOS-*.ipa
+          retention-days: 30
