@@ -1,0 +1,55 @@
+name: Build UWP MSIX
+
+on:
+  push:
+    branches: [all-platforms-reintegration]
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.repository == 'amurgshere/ppsspp'
+    name: Build UWP x64
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Fetch version tags
+        shell: bash
+        run: |
+          git fetch --deepen=15000 --no-recurse-submodules --tags || true
+          count=$(git tag -l 'v[0-9]*' | wc -l | tr -d ' ')
+          if [ "$count" = "0" ]; then
+            git remote add hrydgard https://github.com/hrydgard/ppsspp.git
+            git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
+          fi
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
+
+      - name: Build MSIX (x64 Release)
+        working-directory: ${{ github.workspace }}
+        run: |
+          msbuild UWP/PPSSPP_UWP.sln /m `
+            /p:TrackFileAccess=false `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:AppxPackageSigningEnabled=false `
+            /p:AppxBundle=Never `
+            /p:UapAppxPackageBuildMode=SideloadOnly `
+            /p:AppxBundlePlatforms="x64"
+
+      - name: Package
+        run: |
+          mkdir ppsspp
+          Copy-Item -Recurse "UWP\AppPackages\PPSSPP_UWP\*" ppsspp\
+
+      - name: Upload MSIX
+        uses: actions/upload-artifact@v5
+        with:
+          name: PPSSPP-UWP-x64-${{ github.sha }}
+          path: ppsspp/
+          retention-days: 30
