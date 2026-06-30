@@ -944,29 +944,6 @@ void GPUCommonHW::Execute_Prim(u32 op, u32 diff) {
 		}
 	}
 
-	if (PSP_CoreParameter().compat.flags().SplitFramebufferMargin) {
-		switch (gstate.vertType & 0xFFFFFF) {
-		case 0x00800102:  // through, u16 uv, u16 pos (used for the framebuffer effect in-game)
-			// Optimized re-check: only dirty FRAMEBUF if we might actually need to change split state.
-			// When already in non-margin mode (curRTOffsetX==0) and the first vertex's screen X < 480,
-			// we can't be transitioning to the margin, so skip the expensive re-evaluation.
-			// When in margin mode (curRTOffsetX != 0), always re-check to detect the transition back.
-			if (gstate_c.curRTOffsetX != 0) {
-				gstate_c.Dirty(DIRTY_FRAMEBUF);
-			} else {
-				const u16 *vdata = (const u16 *)Memory::GetPointerUnchecked(gstate_c.vertexAddr);
-				if (!vdata || vdata[2] >= 480) {
-					gstate_c.Dirty(DIRTY_FRAMEBUF);
-				}
-			}
-			break;
-		case 0x0080011c:  // through, 8888 color, s16 pos (used for clearing in the margin of the title screen)
-		case 0x00000183:  // float uv, float pos (used for drawing in the margin of the title screen)
-			// These are less frequent (title screen only) so unconditional re-check is fine.
-			gstate_c.Dirty(DIRTY_FRAMEBUF);
-		}
-	}
-
 	// This also makes skipping drawing very effective.
 	bool changed;
 	VirtualFramebuffer *const vfb = framebufferManager_->SetRenderFrameBuffer(gstate_c.IsDirty(DIRTY_FRAMEBUF), gstate_c.skipDrawReason, &changed);
@@ -1802,6 +1779,13 @@ void GPUCommonHW::Execute_TexFlush(u32 op, u32 diff) {
 	// Games call this when they need the effect of drawing to be visible to texturing.
 	// And for a bunch of other reasons, but either way, this is what we need to do.
 	// It's possible we could also use this as a hint for the texture cache somehow.
+	if (PSP_CoreParameter().compat.flags().SplitFramebufferMargin) {
+		// Diagnostic: log TexFlush events so we can measure how often they fire relative
+		// to self-texture reuses. kzFrameCopy_ is NOT cleared here — it persists for the
+		// whole frame since margin reads (U=0-479) and writes (X=480-511) don't overlap.
+		DEBUG_LOG(Log::G3D, "kzCompat: TexFlush (per-frame copy: %s)",
+			framebufferManager_->HasKZFrameCopy() ? "valid" : "null");
+	}
 	framebufferManager_->DiscardFramebufferCopy();
 }
 

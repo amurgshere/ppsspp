@@ -577,6 +577,16 @@ VirtualFramebuffer *FramebufferManagerCommon::DoSetRenderFrameBuffer(Framebuffer
 		if ((skipDrawReason & SKIPDRAW_SKIPFRAME) == 0)
 			vfb->reallyDirtyAfterDisplay = true;
 
+		if (PSP_CoreParameter().compat.flags().SplitFramebufferMargin) {
+			if (currentRenderVfb_ && currentRenderVfb_->fb_address == 0x04044000) {
+				// Leaving the kz VFB — clear the copy so the next self-texture access takes a fresh one.
+				if (kzFrameCopy_) {
+					DEBUG_LOG(Log::G3D, "kzCompat: clearing per-frame copy (switching to %08x)", vfb->fb_address);
+				}
+				kzFrameCopy_ = nullptr;
+			}
+		}
+
 		VirtualFramebuffer *prev = currentRenderVfb_;
 		currentRenderVfb_ = vfb;
 		NotifyRenderFramebufferSwitched(prev, vfb, params.isClearingDepth);
@@ -1263,6 +1273,35 @@ bool FramebufferManagerCommon::BindFramebufferAsColorTexture(int stage, VirtualF
 
 	// Currently rendering to this framebuffer. Need to make a copy.
 	if (!skipCopy && framebuffer == currentRenderVfb_) {
+		// kzCompat unified FBO: take one copy per frame on the first self-texture access (lazy),
+		// then reuse it for all subsequent margin self-texture draws this frame. The copy is
+		// cleared when leaving the 04044000 VFB so the next frame gets a fresh one.
+		// Taking it lazily here (rather than proactively at frame-start) ensures the main 3D
+		// scene has already been rendered into 04044000 before we snapshot it.
+		if (PSP_CoreParameter().compat.flags().SplitFramebufferMargin) {
+			if (!kzFrameCopy_) {
+				Draw::Framebuffer *copy = GetTempFBO(TempFBO::COPY, framebuffer->renderWidth, framebuffer->renderHeight);
+				if (copy) {
+					VirtualFramebuffer copyInfo = *framebuffer;
+					copyInfo.fbo = copy;
+					bool partial = false;
+					CopyFramebufferForColorTexture(&copyInfo, framebuffer, flags, layer, &partial);
+					RebindFramebuffer("After kzCompat per-frame copy");
+					kzFrameCopy_ = copy;
+					gpuStats.numCopiesForSelfTex++;
+					DEBUG_LOG(Log::G3D, "kzCompat: made per-frame copy of %08x (%dx%d) at first self-texture",
+						framebuffer->fb_address, framebuffer->renderWidth, framebuffer->renderHeight);
+				}
+			} else {
+				DEBUG_LOG(Log::G3D, "kzCompat: reusing per-frame copy (blit saved)");
+			}
+			if (kzFrameCopy_) {
+				draw_->BindFramebufferAsTexture(kzFrameCopy_, stage, Draw::Aspect::COLOR_BIT, layer);
+				return true;
+			}
+			// Fall through to normal self-texture handling if copy creation failed.
+		}
+
 		// Self-texturing, need a copy currently (some backends can potentially support it though).
 		WARN_LOG_ONCE(selfTextureCopy, Log::G3D, "Attempting to texture from current render target (src=%08x / target=%08x / flags=%d), making a copy", framebuffer->fb_address, currentRenderVfb_->fb_address, flags);
 		// TODO: Maybe merge with bvfbs_?  Not sure if those could be packing, and they're created at a different size.
@@ -2867,6 +2906,7 @@ void FramebufferManagerCommon::NotifyConfigChanged() {
 
 void FramebufferManagerCommon::DestroyAllFBOs() {
 	DiscardFramebufferCopy();
+	kzFrameCopy_ = nullptr;
 	currentRenderVfb_ = nullptr;
 	displayFramebuf_ = nullptr;
 	prevDisplayFramebuf_ = nullptr;
@@ -3647,14 +3687,9 @@ static void ApplyKillzoneFramebufferSplit(FramebufferHeuristicParams *params, in
 		// It uses 0x0080019f (through, float texcoords, ABGR 8888 colors, float positions).
 	}
 
-	if (margin) {
-		gstate_c.SetCurRTOffset(-480, 0);
-		// Modify the fb_address and z_address too to avoid matching below.
-		params->fb_address += 480 * 4;
-		params->z_address += 480 * 2;
-		*drawing_width = 32;
-	} else {
-		gstate_c.SetCurRTOffset(0, 0);
-		*drawing_width = 480;
-	}
+	// Unified FBO: keep all draws on 04044000. Margin draws (X=480-511) self-texture from
+	// 04044000 (U=0-479) — the read and write regions don't overlap. A per-frame copy in
+	// BindFramebufferAsColorTexture handles the self-texture case without per-draw FBO switches.
+	(void)margin;
+	gstate_c.SetCurRTOffset(0, 0);
 }

@@ -495,6 +495,8 @@ public:
 		currentFramebufferCopy_ = nullptr;
 	}
 
+	bool HasKZFrameCopy() const { return kzFrameCopy_ != nullptr; }
+
 	bool PresentedThisFrame() const;
 
 	const std::vector<VirtualFramebuffer *> &GetVFBs() const {
@@ -594,6 +596,9 @@ protected:
 	VirtualFramebuffer *currentRenderVfb_ = nullptr;
 
 	Draw::Framebuffer *currentFramebufferCopy_ = nullptr;
+	// kzCompat (SplitFramebufferMargin): one copy of 04044000 per frame, reused across all margin
+	// compositing draws instead of making a new blit on every TexFlush. Null = not yet taken.
+	Draw::Framebuffer *kzFrameCopy_ = nullptr;
 
 	// The range of PSP memory that may contain FBOs.  So we can skip iterating.
 	u32 framebufColorRangeEnd_ = 0;
