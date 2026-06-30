@@ -18,6 +18,7 @@ jobs:
             ffmpeg_target: aarch64-linux-android21
             ffmpeg_extra_cflags: ""
             ffmpeg_extra_flags: "--disable-asm"
+            gradle_task: assembleNormalOptimized
             artifact: PPSSPP-Android-arm64
           - abi: armeabi-v7a
             ffmpeg_arch: arm
@@ -25,7 +26,16 @@ jobs:
             ffmpeg_target: armv7a-linux-androideabi21
             ffmpeg_extra_cflags: "-march=armv7-a -mfpu=neon -mfloat-abi=softfp"
             ffmpeg_extra_flags: "--disable-asm"
+            gradle_task: assembleNormalOptimized
             artifact: PPSSPP-Android-arm32
+          - abi: arm64-v8a
+            ffmpeg_arch: aarch64
+            ffmpeg_prefix: android/arm64
+            ffmpeg_target: aarch64-linux-android21
+            ffmpeg_extra_cflags: ""
+            ffmpeg_extra_flags: "--disable-asm"
+            gradle_task: assembleVrOptimized
+            artifact: PPSSPP-Android-VR
 
     steps:
       - uses: actions/checkout@v5
@@ -119,8 +129,8 @@ jobs:
             ${{ matrix.ffmpeg_extra_flags }}
           make -j$(nproc) install
 
-      - name: Build APK (${{ matrix.abi }})
-        run: ./gradlew assembleNormalOptimized -Pandroid.injected.build.abi=${{ matrix.abi }} --stacktrace
+      - name: Build APK (${{ matrix.artifact }})
+        run: ./gradlew ${{ matrix.gradle_task }} -Pandroid.injected.build.abi=${{ matrix.abi }} --stacktrace
 
       - name: Package
         run: |
