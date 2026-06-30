@@ -853,8 +853,10 @@ void EmuScreen::onVKey(VirtKey virtualKeyCode, bool down) {
 		if (!g_Config.bEnableLogging)
 			break;
 		bool holdMode = (g_Config.iLogVerbosityOverrideMode == 1);
-		bool shouldActivate = holdMode ? down : (down && !logVerbosityOverrideActive_);
-		bool shouldDeactivate = holdMode ? !down : (down && logVerbosityOverrideActive_);
+		// Gate on !logVerbosityOverrideActive_ to prevent key-repeat events from re-saving
+		// the already-overridden levels into savedLogLevels_ (which would break restore on release).
+		bool shouldActivate = down && !logVerbosityOverrideActive_;
+		bool shouldDeactivate = holdMode ? (!down && logVerbosityOverrideActive_) : (down && logVerbosityOverrideActive_);
 		if (shouldActivate) {
 			for (size_t i = 0; i < (size_t)Log::NUMBER_OF_LOGS; i++) {
 				savedLogLevels_[i] = g_log[i].level;
