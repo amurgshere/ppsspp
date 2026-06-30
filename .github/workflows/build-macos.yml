@@ -1,0 +1,47 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [all-platforms-reintegration]
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.repository == 'amurgshere/ppsspp'
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Fetch version tags
+        run: |
+          git fetch --deepen=15000 --no-recurse-submodules --tags || true
+          count=$(git tag -l 'v[0-9]*' | wc -l | tr -d ' ')
+          if [ "$count" = "0" ]; then
+            git remote add hrydgard https://github.com/hrydgard/ppsspp.git
+            git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
+          fi
+
+      - name: Build
+        env:
+          CC: clang
+          CXX: clang++
+        run: ./b.sh --fat --no-png --no-sdl2
+
+      - name: Package
+        run: |
+          mkdir -p ppsspp
+          if [ -e build*/PPSSPPSDL.app ]; then
+            cp -a build*/PPSSPPSDL.app ppsspp/
+            cd ppsspp && zip -qry PPSSPPSDL.zip PPSSPPSDL.app && rm -rf PPSSPPSDL.app
+          fi
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: PPSSPP-macOS-${{ github.sha }}
+          path: ppsspp/
+          retention-days: 30

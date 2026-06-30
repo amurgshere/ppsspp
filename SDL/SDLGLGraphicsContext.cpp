@@ -16,9 +16,11 @@
 #include "EGL/egl.h"
 #endif
 
+#if PPSSPP_PLATFORM(SWITCH)
 #include <glsym/rglgen.h>
 extern const struct rglgen_sym_map rglgen_symbol_map_ppsspp;
 extern "C" void rglgen_resolve_symbols_custom(rglgen_proc_address_t proc, const struct rglgen_sym_map *map);
+#endif
 
 class GLRenderManager;
 
@@ -406,7 +408,9 @@ int SDLGLGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, int h, 
 	}
 #endif
 
+#if PPSSPP_PLATFORM(SWITCH)
 	rglgen_resolve_symbols_custom(&eglGetProcAddress, &rglgen_symbol_map_ppsspp);
+#endif
 
 #if !defined(USING_GLES2) && !PPSSPP_PLATFORM(SWITCH)
 	// Some core profile drivers elide certain extensions from GL_EXTENSIONS/etc.

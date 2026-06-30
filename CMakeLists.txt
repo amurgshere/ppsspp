@@ -1505,13 +1505,17 @@ else()
 	# Require SDL
 	add_compile_definitions(SDL)
 	set(nativeExtra ${nativeExtra}
-		libretro/libretro-common_nx/glsym/glsym_gl.c
-		libretro/libretro-common_nx/glsym/rglgen.c
 		SDL/SDLJoystick.h
 		SDL/SDLJoystick.cpp
 		SDL/SDLMain.cpp
 		SDL/SDLGLGraphicsContext.cpp
 	)
+	if(USE_LIBNX)
+		set(nativeExtra ${nativeExtra}
+			libretro/libretro-common_nx/glsym/glsym_gl.c
+			libretro/libretro-common_nx/glsym/rglgen.c
+		)
+	endif()
 	if(NOT USE_LIBNX)
 		set(nativeExtra ${nativeExtra}
 			SDL/SDLVulkanGraphicsContext.cpp
@@ -1985,6 +1989,9 @@ set(GPU_D3D11
 
 # We build Vulkan even on Apple to avoid annoying build differences.
 set(GPU_IMPLS ${GPU_GLES})
+if(NOT USE_LIBNX)
+	list(APPEND GPU_IMPLS ${GPU_VULKAN})
+endif()
 if(WIN32)
 	list(APPEND GPU_IMPLS ${GPU_D3D11})
 endif()
@@ -2136,8 +2143,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/KeyMap.h
 	Core/KeyMapDefaults.cpp
 	Core/KeyMapDefaults.h
-	#Core/LuaContext.cpp
-	#Core/LuaContext.h
+	Core/LuaContext.cpp
+	Core/LuaContext.h
 	Core/RetroAchievements.h
 	Core/RetroAchievements.cpp
 	Core/TiltEventProcessor.h
