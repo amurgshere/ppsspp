@@ -1,0 +1,62 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [switch-enhancements]
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.repository == 'amurgshere/ppsspp'
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Fetch version tags
+        shell: bash
+        run: |
+          git fetch --deepen=15000 --no-recurse-submodules --tags || true
+          count=$(git tag -l 'v[0-9]*' | wc -l | tr -d ' ')
+          if [ "$count" = "0" ]; then
+            git remote add hrydgard https://github.com/hrydgard/ppsspp.git
+            git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
+          fi
+
+      - name: Generate git-version.cpp
+        shell: pwsh
+        run: |
+          $GIT_VERSION = git describe --always
+          Write-Host "Git version: $GIT_VERSION"
+          "const char *PPSSPP_GIT_VERSION = `"$GIT_VERSION`";" | Out-File -Encoding utf8 git-version.cpp
+          "#define PPSSPP_GIT_VERSION_NO_UPDATE 1" | Out-File -Encoding utf8 -Append git-version.cpp
+          if ($GIT_VERSION.StartsWith("v")) {
+            $WIN_VERSION_COMMA = $GIT_VERSION -replace '^v', '' -replace '-g[0-9a-f]+$', '' -replace '[-\.]', ','
+            "#define PPSSPP_WIN_VERSION_STRING `"$GIT_VERSION`"" | Out-File -Encoding utf8 Windows/win-version.h
+            "#define PPSSPP_WIN_VERSION_COMMA $WIN_VERSION_COMMA" | Out-File -Encoding utf8 -Append Windows/win-version.h
+            "#define PPSSPP_WIN_VERSION_NO_UPDATE 1" | Out-File -Encoding utf8 -Append Windows/win-version.h
+          }
+
+      - name: Build
+        run: msbuild /m /p:TrackFileAccess=false /p:Configuration=Release /p:Platform=x64 Windows/PPSSPP.sln
+
+      - name: Package
+        shell: pwsh
+        run: |
+          mkdir ppsspp
+          Copy-Item PPSSPP*.exe ppsspp/ -ErrorAction SilentlyContinue
+          Copy-Item Windows/x64/Release/*.exe ppsspp/ -ErrorAction SilentlyContinue
+          Copy-Item -Recurse assets ppsspp/assets
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: PPSSPP-Windows-x64-${{ github.sha }}
+          path: ppsspp/
+          retention-days: 30
