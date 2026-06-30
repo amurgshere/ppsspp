@@ -36,7 +36,7 @@ jobs:
           mkdir -p ppsspp
           if [ -e build*/PPSSPPSDL.app ]; then
             cp -a build*/PPSSPPSDL.app ppsspp/
-            cd ppsspp && zip -qry PPSSPPSDL.zip PPSSPPSDL.app && rm -rf PPSSPPSDL.app
+            (cd ppsspp && zip -qry PPSSPPSDL.zip PPSSPPSDL.app && rm -rf PPSSPPSDL.app)
           fi
           find build* -name PPSSPPHeadless -exec cp {} ppsspp/ \; 2>/dev/null || true
           find build* -name PPSSPPUnitTest -exec cp {} ppsspp/ \; 2>/dev/null || true
