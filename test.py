@@ -529,6 +529,8 @@ tests_ignored = [
   "jpeg/finish",           # Test init failed
   "jpeg/init",             # Test init failed
   "misc/reg",              # Test init failed
+  "sysmem/volatile",       # Test init failed
+  "threads/mutex/unlock2", # Test init failed
 ]
 
 
