@@ -170,6 +170,8 @@ public:
 	bool bSaveLoadResetsAVdumping;
 	bool bEnableLogging;
 	bool bEnableFileLogging;
+	int iLogVerbosityOverrideLevel;  // LogLevel int: 1=Notice .. 6=Verbose
+	int iLogVerbosityOverrideMode;   // 0 = Toggle, 1 = Hold
 	int iLogOutputTypes;  // enum class LogOutput
 	int iDumpFileTypes;  // DumpFileType bitflag enum
 	bool bFullscreenOnDoubleclick;

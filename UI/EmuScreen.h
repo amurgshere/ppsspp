@@ -23,6 +23,7 @@
 
 #include "Common/File/Path.h"
 #include "Common/Input/KeyCodes.h"
+#include "Common/Log.h"
 #include "Common/UI/Screen.h"
 #include "Common/UI/UIScreen.h"
 #include "Common/UI/Tween.h"
@@ -104,6 +105,9 @@ private:
 
 	// If set, pauses at the end of the frame.
 	bool pauseTrigger_ = false;
+
+	bool logVerbosityOverrideActive_ = false;
+	LogLevel savedLogLevels_[(size_t)Log::NUMBER_OF_LOGS] = {};
 
 	// The last read chat message count, and how many new ones there are.
 	int chatMessages_ = 0;

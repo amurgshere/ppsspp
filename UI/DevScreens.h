@@ -206,3 +206,6 @@ protected:
 void DrawProfile(UIContext &ui);
 
 void AddOverlayList(UI::ViewGroup *items, ScreenManager *screenManager);
+
+extern const char *logLevelList[];
+extern const int logLevelListCount;

@@ -77,7 +77,7 @@
 #include "android/jni/app-android.h"
 
 
-static const char *logLevelList[] = {
+const char *logLevelList[] = {
 	"Notice",
 	"Error",
 	"Warn",
@@ -85,6 +85,7 @@ static const char *logLevelList[] = {
 	"Debug",
 	"Verb."
 };
+const int logLevelListCount = ARRAY_SIZE(logLevelList);
 
 static const char *g_debugOverlayList[] = {
 	"Off",

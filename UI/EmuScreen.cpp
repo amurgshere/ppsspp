@@ -848,6 +848,35 @@ void EmuScreen::onVKey(VirtKey virtualKeyCode, bool down) {
 	case VIRTKEY_RAPID_FIRE:
 		__CtrlSetRapidFire(down, g_Config.iRapidFireInterval);
 		break;
+	case VIRTKEY_LOG_VERBOSITY_OVERRIDE:
+	{
+		if (!g_Config.bEnableLogging)
+			break;
+		bool holdMode = (g_Config.iLogVerbosityOverrideMode == 1);
+		bool shouldActivate = holdMode ? down : (down && !logVerbosityOverrideActive_);
+		bool shouldDeactivate = holdMode ? !down : (down && logVerbosityOverrideActive_);
+		if (shouldActivate) {
+			for (size_t i = 0; i < (size_t)Log::NUMBER_OF_LOGS; i++) {
+				savedLogLevels_[i] = g_log[i].level;
+				g_log[i].level = (LogLevel)g_Config.iLogVerbosityOverrideLevel;
+			}
+			logVerbosityOverrideActive_ = true;
+			int levelIdx = g_Config.iLogVerbosityOverrideLevel - 1;
+			const char *levelName = (levelIdx >= 0 && levelIdx < logLevelListCount) ? logLevelList[levelIdx] : "?";
+			std::string msg = std::string("Log verbosity overridden: ") + levelName;
+			NOTICE_LOG(Log::System, "%s", msg.c_str());
+			g_OSD.Show(OSDType::MESSAGE_INFO, msg, 2.0f);
+		} else if (shouldDeactivate) {
+			std::string msg = "Log verbosity override released";
+			NOTICE_LOG(Log::System, "%s", msg.c_str());
+			g_OSD.Show(OSDType::MESSAGE_INFO, msg, 2.0f);
+			for (size_t i = 0; i < (size_t)Log::NUMBER_OF_LOGS; i++) {
+				g_log[i].level = savedLogLevels_[i];
+			}
+			logVerbosityOverrideActive_ = false;
+		}
+		break;
+	}
 	default:
 		// To make sure we're not in an async context.
 		if (down) {

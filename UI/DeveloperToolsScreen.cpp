@@ -164,6 +164,11 @@ void DeveloperToolsScreen::CreateGeneralTab(UI::LinearLayout *list) {
 		screenManager()->push(new LogConfigScreen());
 	});
 	list->Add(new CheckBox(&g_Config.bEnableFileLogging, dev->T("Log to file")))->SetEnabledPtr(&g_Config.bEnableLogging);
+
+	static const char *overrideModes[] = {"Toggle", "Hold"};
+	list->Add(new PopupMultiChoice(&g_Config.iLogVerbosityOverrideLevel, dev->T("Log verbosity override mapping level"), logLevelList, 1, logLevelListCount, I18NCat::DEVELOPER, screenManager()))->SetEnabledPtr(&g_Config.bEnableLogging);
+	list->Add(new PopupMultiChoice(&g_Config.iLogVerbosityOverrideMode, dev->T("Log verbosity override mapping mode"), overrideModes, 0, ARRAY_SIZE(overrideModes), I18NCat::DEVELOPER, screenManager()))->SetEnabledPtr(&g_Config.bEnableLogging);
+
 	list->Add(new CheckBox(&g_Config.bLogFrameDrops, dev->T("Log Dropped Frame Statistics")));
 	if (GetGPUBackend() == GPUBackend::VULKAN) {
 		list->Add(new CheckBox(&g_Config.bGpuLogProfiler, dev->T("GPU log profiler")));

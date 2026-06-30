@@ -230,6 +230,8 @@ static const ConfigSetting generalSettings[] = {
 	ConfigSetting("RunCount", SETTING(g_Config, iRunCount), 0, CfgFlag::DEFAULT),
 	ConfigSetting("Enable Logging", SETTING(g_Config, bEnableLogging), true, CfgFlag::PER_GAME),
 	ConfigSetting("FileLogging", SETTING(g_Config, bEnableFileLogging), false, CfgFlag::PER_GAME),
+	ConfigSetting("LogVerbosityOverrideLevel", SETTING(g_Config, iLogVerbosityOverrideLevel), (int)LogLevel::LDEBUG, CfgFlag::PER_GAME),
+	ConfigSetting("LogVerbosityOverrideMode", SETTING(g_Config, iLogVerbosityOverrideMode), 0, CfgFlag::PER_GAME),
 	ConfigSetting("AutoRun", SETTING(g_Config, bAutoRun), true, CfgFlag::DEFAULT),
 	ConfigSetting("IgnoreBadMemAccess", SETTING(g_Config, bIgnoreBadMemAccess), true, CfgFlag::DEFAULT),
 	ConfigSetting("CurrentDirectory", SETTING(g_Config, currentDirectory), "", CfgFlag::DEFAULT),

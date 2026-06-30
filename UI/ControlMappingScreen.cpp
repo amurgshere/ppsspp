@@ -284,6 +284,9 @@ void ControlMappingScreen::CreateContentViews(UI::ViewGroup *parent) {
 		SingleControlMapper *mapper = curSection->Add(
 			new SingleControlMapper(mappableKeys[i].key, mappableKeys[i].name, portrait, screenManager()));
 		mapper->SetTag(StringFromFormat("KeyMap%s", mappableKeys[i].name));
+		if (mappableKeys[i].key == VIRTKEY_LOG_VERBOSITY_OVERRIDE) {
+			mapper->SetEnabledPtr(&g_Config.bEnableLogging);
+		}
 		mappers_.push_back(mapper);
 	}
 	if (curCat >= 0 && curSection) {

@@ -467,6 +467,7 @@ const KeyMap_IntStrPair psp_button_names[] = {
 
 	{VIRTKEY_TOGGLE_MOUSE, "Toggle mouse input"},
 	{VIRTKEY_TOGGLE_TOUCH_CONTROLS, "Toggle touch controls"},
+	{VIRTKEY_LOG_VERBOSITY_OVERRIDE, "Log Verbosity Override"},
 
 	{VIRTKEY_AXIS_RIGHT_Y_MAX, "RightAn.Up"},
 	{VIRTKEY_AXIS_RIGHT_Y_MIN, "RightAn.Down"},
@@ -939,6 +940,21 @@ static const char * const g_vKeyNames[] = {
 	"SPEED_ANALOG",
 	"VR_CAMERA_ADJUST",
 	"VR_CAMERA_RESET",
+	"PREVIOUS_SLOT",
+	"TOGGLE_WLAN",
+	"EXIT_APP",
+	"",  // 0x2a - unassigned
+	"",  // 0x2b - unassigned
+	"",  // 0x2c - unassigned
+	"",  // 0x2d - unassigned
+	"",  // 0x2e - unassigned
+	"",  // 0x2f - unassigned
+	"TOGGLE_MOUSE",
+	"TOGGLE_TOUCH_CONTROLS",
+	"RESET_EMULATION",
+	"TOGGLE_DEBUGGER",
+	"PAUSE_NO_MENU",
+	"LOG_VERBOSITY_OVERRIDE",
 };
 
 const char *GetVirtKeyName(int vkey) {
