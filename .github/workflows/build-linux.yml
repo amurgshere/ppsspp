@@ -38,14 +38,14 @@ jobs:
 
       - name: Build (gcc)
         if: matrix.compiler == 'gcc'
-        run: ./b.sh --no-png --headless --release
+        run: ./b.sh --no-png --headless --unittest --release
 
       - name: Build (clang)
         if: matrix.compiler == 'clang'
         env:
           CC: clang
           CXX: clang++
-        run: ./b.sh --no-png --headless --release
+        run: ./b.sh --no-png --headless --unittest --release
 
       - name: Upload build
         uses: actions/upload-artifact@v5
@@ -53,4 +53,45 @@ jobs:
           name: PPSSPP-Linux-${{ matrix.compiler }}-${{ github.sha }}
           path: |
             build*/PPSSPPHeadless
+            build*/PPSSPPUnitTest
           retention-days: 30
+
+  test:
+    if: github.repository == 'amurgshere/ppsspp'
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false
+
+      - name: Fetch test submodules
+        run: git submodule update --init pspautotests
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libglu1-mesa-dev python3
+
+      - name: Download build
+        uses: actions/download-artifact@v4
+        with:
+          name: PPSSPP-Linux-${{ matrix.compiler }}-${{ github.sha }}
+          path: ppsspp/
+
+      - name: Fix permissions
+        run: |
+          cp $(find ppsspp -name PPSSPPHeadless) .
+          cp $(find ppsspp -name PPSSPPUnitTest) .
+          chmod +x PPSSPPHeadless PPSSPPUnitTest
+
+      - name: Unit tests
+        run: ./PPSSPPUnitTest ALL
+
+      - name: Headless tests
+        run: python3 test.py -g --graphics=software
