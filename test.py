@@ -613,6 +613,7 @@ def main():
   elif '-m' in args:
     tests = [i for i in tests_next + tests_good if i.startswith(tests[0])]
 
+  tests = [t for t in tests if t not in tests_ignored]
   returncode = run_tests(tests, args)
   if teamcity:
     return 0
