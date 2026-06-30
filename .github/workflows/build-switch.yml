@@ -13,7 +13,7 @@ jobs:
       image: devkitpro/devkita64:latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           fetch-depth: 0
@@ -59,7 +59,7 @@ jobs:
             --icon=icons/icon-512.jpg
 
       - name: Upload NRO
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: PPSSPP_GL-${{ github.sha }}
           path: build-switch/PPSSPP_GL.nro

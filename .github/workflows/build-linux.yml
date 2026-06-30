@@ -1,4 +1,4 @@
-name: Build macOS
+name: Build Linux
 
 on:
   push:
@@ -8,7 +8,10 @@ on:
 jobs:
   build:
     if: github.repository == 'amurgshere/ppsspp'
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
 
     steps:
       - uses: actions/checkout@v5
@@ -25,23 +28,29 @@ jobs:
             git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
           fi
 
-      - name: Build
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake libsdl2-dev libvulkan-dev \
+            libpng-dev zlib1g-dev libsnappy-dev \
+            libglu1-mesa-dev
+
+      - name: Build (gcc)
+        if: matrix.compiler == 'gcc'
+        run: ./b.sh --no-png --headless --release
+
+      - name: Build (clang)
+        if: matrix.compiler == 'clang'
         env:
           CC: clang
           CXX: clang++
-        run: ./b.sh --fat --no-png --no-sdl2
-
-      - name: Package
-        run: |
-          mkdir -p ppsspp
-          if [ -e build*/PPSSPPSDL.app ]; then
-            cp -a build*/PPSSPPSDL.app ppsspp/
-            cd ppsspp && zip -qry PPSSPPSDL.zip PPSSPPSDL.app && rm -rf PPSSPPSDL.app
-          fi
+        run: ./b.sh --no-png --headless --release
 
       - name: Upload build
         uses: actions/upload-artifact@v5
         with:
-          name: PPSSPP-macOS-${{ github.sha }}
-          path: ppsspp/
+          name: PPSSPP-Linux-${{ matrix.compiler }}-${{ github.sha }}
+          path: |
+            build*/PPSSPPHeadless
           retention-days: 30

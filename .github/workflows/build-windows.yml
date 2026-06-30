@@ -18,7 +18,7 @@ jobs:
             artifact: PPSSPP-Windows-ARM64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
           fetch-depth: 0
@@ -62,7 +62,7 @@ jobs:
           Copy-Item -Recurse assets ppsspp/assets
 
       - name: Upload build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact }}-${{ github.sha }}
           path: ppsspp/
