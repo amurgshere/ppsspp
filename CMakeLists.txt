@@ -2143,8 +2143,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/KeyMap.h
 	Core/KeyMapDefaults.cpp
 	Core/KeyMapDefaults.h
-	Core/LuaContext.cpp
-	Core/LuaContext.h
+	$<$<NOT:$<BOOL:${USE_LIBNX}>>:Core/LuaContext.cpp>
+	$<$<NOT:$<BOOL:${USE_LIBNX}>>:Core/LuaContext.h>
 	Core/RetroAchievements.h
 	Core/RetroAchievements.cpp
 	Core/TiltEventProcessor.h
