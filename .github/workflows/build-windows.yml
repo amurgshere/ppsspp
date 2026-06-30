@@ -2,7 +2,7 @@ name: Build Windows
 
 on:
   push:
-    branches: [switch-enhancements]
+    branches: [all-platforms-reintegration]
   workflow_dispatch:
 
 jobs:
