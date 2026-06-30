@@ -1,0 +1,140 @@
+name: Build Android
+
+on:
+  push:
+    branches: [all-platforms-reintegration]
+  workflow_dispatch:
+
+jobs:
+  build:
+    if: github.repository == 'amurgshere/ppsspp'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - abi: arm64-v8a
+            ffmpeg_arch: aarch64
+            ffmpeg_prefix: android/arm64
+            ffmpeg_target: aarch64-linux-android21
+            ffmpeg_extra_cflags: ""
+            ffmpeg_extra_flags: "--disable-asm"
+            artifact: PPSSPP-Android-arm64
+          - abi: armeabi-v7a
+            ffmpeg_arch: arm
+            ffmpeg_prefix: android/armv7
+            ffmpeg_target: armv7a-linux-androideabi21
+            ffmpeg_extra_cflags: "-march=armv7-a -mfpu=neon -mfloat-abi=softfp"
+            ffmpeg_extra_flags: "--disable-asm"
+            artifact: PPSSPP-Android-arm32
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Fetch version tags
+        run: |
+          git fetch --deepen=15000 --no-recurse-submodules --tags || true
+          count=$(git tag -l 'v[0-9]*' | wc -l | tr -d ' ')
+          if [ "$count" = "0" ]; then
+            git remote add hrydgard https://github.com/hrydgard/ppsspp.git
+            git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
+          fi
+
+      - name: Setup JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Rebuild FFmpeg (${{ matrix.abi }})
+        run: |
+          TOOLCHAIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64
+          CC=$TOOLCHAIN/bin/${{ matrix.ffmpeg_target }}-clang
+          cd ffmpeg
+          ./configure \
+            --target-os=android \
+            --arch=${{ matrix.ffmpeg_arch }} \
+            --enable-cross-compile \
+            --enable-pic \
+            --cc=$CC \
+            --ld=$CC \
+            --nm=$TOOLCHAIN/bin/llvm-nm \
+            --ar=$TOOLCHAIN/bin/llvm-ar \
+            --ranlib=$TOOLCHAIN/bin/llvm-ranlib \
+            --strip=$TOOLCHAIN/bin/llvm-strip \
+            --sysroot=$TOOLCHAIN/sysroot \
+            --prefix=./${{ matrix.ffmpeg_prefix }} \
+            --extra-cflags="-fPIC -O2 -DANDROID ${{ matrix.ffmpeg_extra_cflags }}" \
+            --disable-shared \
+            --enable-static \
+            --disable-avdevice \
+            --disable-filters \
+            --disable-programs \
+            --disable-network \
+            --disable-avfilter \
+            --disable-postproc \
+            --disable-encoders \
+            --disable-protocols \
+            --disable-hwaccels \
+            --disable-doc \
+            --disable-everything \
+            --enable-decoder=h264 \
+            --enable-decoder=mpeg4 \
+            --enable-decoder=mpeg2video \
+            --enable-decoder=mjpeg \
+            --enable-decoder=mjpegb \
+            --enable-decoder=aac \
+            --enable-decoder=aac_latm \
+            --enable-decoder=atrac3 \
+            --enable-decoder=atrac3p \
+            --enable-decoder=mp3 \
+            --enable-decoder=pcm_s16le \
+            --enable-decoder=pcm_s8 \
+            --enable-encoder=huffyuv \
+            --enable-encoder=ffv1 \
+            --enable-encoder=pcm_s16le \
+            --enable-demuxer=h264 \
+            --enable-demuxer=m4v \
+            --enable-demuxer=mpegvideo \
+            --enable-demuxer=mpegps \
+            --enable-demuxer=mp3 \
+            --enable-demuxer=avi \
+            --enable-demuxer=aac \
+            --enable-demuxer=pmp \
+            --enable-demuxer=oma \
+            --enable-demuxer=pcm_s16le \
+            --enable-demuxer=pcm_s8 \
+            --enable-demuxer=wav \
+            --enable-muxer=avi \
+            --enable-parser=h264 \
+            --enable-parser=mpeg4video \
+            --enable-parser=mpegaudio \
+            --enable-parser=mpegvideo \
+            --enable-parser=aac \
+            --enable-parser=aac_latm \
+            --enable-zlib \
+            ${{ matrix.ffmpeg_extra_flags }}
+          make -j$(nproc) install
+
+      - name: Build APK (${{ matrix.abi }})
+        run: ./gradlew assembleNormalOptimized -Pandroid.injected.build.abi=${{ matrix.abi }} --stacktrace
+
+      - name: Package
+        run: |
+          mkdir ppsspp
+          find . -name "*.apk" | head -10
+          if ls android/build/outputs/apk/*/*/*.apk 2>/dev/null; then
+            cp android/build/outputs/apk/*/*/*.apk ppsspp/
+          elif ls android/build/*/apk/*/*/*.apk 2>/dev/null; then
+            cp android/build/*/apk/*/*/*.apk ppsspp/
+          fi
+
+      - name: Upload build
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.artifact }}-${{ github.sha }}
+          path: ppsspp/
+          retention-days: 30

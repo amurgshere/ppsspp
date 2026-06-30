@@ -6891,7 +6891,7 @@ extern PFNGLCOPYIMAGESUBDATAOES __glCopyImageSubDataOES;
 #if !PPSSPP_PLATFORM(SWITCH)
 // Support OpenGL ES 3.0
 // This uses the "DYNAMIC" approach from the gles3jni NDK sample.
-#include "../gfx_es2/gl3stub.h"
+#include "gl3stub.h"
 #endif // PPSSPP_PLATFORM(SWITCH)
 #endif
 
