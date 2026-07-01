@@ -67,6 +67,11 @@ static AVPixelFormat getSwsFormat(int pspFormat)
 	}
 }
 
+// Set when FFmpeg logs a decode error (e.g. a truncated Access Unit at a loop
+// boundary, where the game feeds a slightly short final frame). Checked by
+// stepVideo() so the resulting garbled frame can be dropped instead of shown.
+static thread_local bool g_lastDecodeHadError = false;
+
 void ffmpeg_logger(void *, int level, const char *format, va_list va_args) {
 	// We're still called even if the level doesn't match.
 	if (level > av_log_get_level())
@@ -80,6 +85,10 @@ void ffmpeg_logger(void *, int level, const char *format, va_list va_args) {
 	size_t len = strlen(tmp);
 	if (tmp[len - 1] == '\n')
 		tmp[len - 1] = '\0';
+
+	if (startsWith(tmp, "error while decoding")) {
+		g_lastDecodeHadError = true;
+	}
 
 	if (!strcmp(tmp, "GHA Phase shifting")) {
 		Reporting::ReportMessage("Atrac3+: GHA phase shifting");
@@ -702,14 +711,17 @@ bool MediaEngine::stepVideo(int videoPixelMode, bool skipFrame) {
 				av_free_packet(&packet);
 #endif
 
+			// Reset every iteration regardless of which decode API below is active,
+			// so a stale error from an earlier frame can't stick around forever.
+			g_lastDecodeHadError = false;
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57, 48, 101)
-			if (dataEnd) {
-				// Send flush (drain) signal so the codec outputs any remaining buffered frames
-				// (e.g. B-frames or decoder-delay frames at end of stream).
-				avcodec_send_packet(m_pCodecCtx, nullptr);
-			} else if (packet.size != 0) {
+			// Note: dataEnd can also mean the ring buffer is just transiently starved
+			// (the game hasn't fed the next chunk yet), not necessarily true end of
+			// stream. Flushing the decoder here would reset its internal state on every
+			// such stall, corrupting playback. PSP H.264 streams have no B-frames and
+			// zero decoder delay, so there's nothing to drain - just skip this pass.
+			if (!dataEnd && packet.size != 0)
 				avcodec_send_packet(m_pCodecCtx, &packet);
-			}
 			int result = avcodec_receive_frame(m_pCodecCtx, m_pFrame);
 			if (result == 0) {
 				result = 1;
@@ -727,7 +739,27 @@ bool MediaEngine::stepVideo(int videoPixelMode, bool skipFrame) {
 				if (!m_pFrameRGB) {
 					setVideoDim();
 				}
-				if (m_pFrameRGB && !skipFrame) {
+				// Some frames in a stream can come from a truncated/incomplete Access
+				// Unit (e.g. a game feeding a slightly short final AU at a loop
+				// boundary). FFmpeg's error concealment fills the missing macroblocks
+				// with garbage in that case. Keep frame timing/pts advancing normally,
+				// but skip the visible update so the previous good frame stays on
+				// screen instead of flashing corrupted blocks.
+				//
+				// Two alternatives were tried and rejected for this stream specifically:
+				// - Flushing the decoder on error (avcodec_flush_buffers) to wipe the
+				//   corrupted reference immediately: this clip only has ~2 real
+				//   keyframes in its entire length, so a loop restart almost never
+				//   lands on one, and flushing left the decoder referencing nothing
+				//   valid most of the time, producing a gray frame.
+				// - Holding the last good frame until the next real keyframe (instead
+				//   of just this one frame): since keyframes are so rare here, this
+				//   produced multi-hundred-millisecond freezes once a loop, which reads
+				//   worse than a single corrupted frame.
+				// So: skip only the frame that was actually flagged bad, and let
+				// whatever comes next (even if it's a P-frame predicting from a
+				// corrupted reference) display normally.
+				if (m_pFrameRGB && !skipFrame && !g_lastDecodeHadError) {
 					updateSwsFormat(videoPixelMode);
 					// TODO: Technically we could set this to frameWidth instead of m_desWidth for better perf.
 					// Update the linesize for the new format too.  We started with the largest size, so it should fit.
