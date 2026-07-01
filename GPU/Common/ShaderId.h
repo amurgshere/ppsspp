@@ -5,6 +5,12 @@
 #include <cstdint>
 
 #include "Common/CommonFuncs.h"
+#include "GPU/GPUState.h"
+
+// NOTE: Both of these assume non-through-mode. Don't check these in through mode.
+inline bool needFragmentMinMaxClipping() {
+	return gstate.getDepthRangeMin() != 0 && gstate.getDepthRangeMax() != 0xFFFF;
+}
 
 // VS_BIT_LIGHT_UBERSHADER indicates that some groups of these will be
 // sent to the shader and processed there. This cuts down the number of shaders ("ubershader approach").
@@ -53,7 +59,8 @@ enum VShaderBit : uint8_t {
 	VS_BIT_LIGHT3_ENABLE = 55,
 	VS_BIT_LIGHTING_ENABLE = 56,
 	VS_BIT_WEIGHT_FMTSCALE = 57,  // only two bits
-	// 59 - 61 are free.
+	VS_BIT_FS_MINMAX_DISCARD = 59, // Forward Z/W to fragment shader for min/max Z discard fallback
+	// 60 - 61 are free.
 	VS_BIT_FLATSHADE = 62, // 1 bit
 	VS_BIT_BEZIER = 63, // 1 bit
 	// No more free
@@ -83,7 +90,7 @@ enum FShaderBit : uint8_t {
 	FS_BIT_COLOR_AGAINST_ZERO = 20,
 	FS_BIT_ENABLE_FOG = 21,  // Not used with FS_BIT_UBERSHADER
 	FS_BIT_DO_TEXTURE_PROJ = 22,
-	// 1 free bit
+	FS_BIT_MINMAX_DISCARD = 23, // Discard fragments outside PSP minZ/maxZ depth range
 	FS_BIT_STENCIL_TO_ALPHA = 24,  // 2 bits
 	FS_BIT_REPLACE_ALPHA_WITH_STENCIL_TYPE = 26,  // 4 bits    (ReplaceAlphaType)
 	FS_BIT_SIMULATE_LOGIC_OP_TYPE = 30,  // 2 bits

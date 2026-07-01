@@ -229,6 +229,8 @@ enum class TempFBO {
 	Z_COPY,
 	// Used to copy stencil data, means we need a stencil backing.
 	STENCIL,
+	// Exclusive slot for kzCompat per-frame copy; never shared with the normal COPY path.
+	KZ_COPY,
 };
 
 inline Draw::DataFormat GEFormatToThin3D(GEBufferFormat geFormat) {
@@ -599,6 +601,8 @@ protected:
 	// kzCompat (SplitFramebufferMargin): one copy of 04044000 per frame, reused across all margin
 	// compositing draws instead of making a new blit on every TexFlush. Null = not yet taken.
 	Draw::Framebuffer *kzFrameCopy_ = nullptr;
+	u16 kzFrameCopyW_ = 0;
+	u16 kzFrameCopyH_ = 0;
 
 	// The range of PSP memory that may contain FBOs.  So we can skip iterating.
 	u32 framebufColorRangeEnd_ = 0;

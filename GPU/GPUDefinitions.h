@@ -144,6 +144,18 @@ enum class GPUCopyFlag {
 };
 ENUM_CLASS_BITOPS(GPUCopyFlag);
 
+enum class ClipInfoFlags {
+	Empty = 0,
+	Valid = 1,
+	SoftClipCull = 2,
+	FlatZ = 4,
+	DepthClamp = 8,
+	DepthClampFragment = 16,
+	MinMaxZClip = 32,    // hardware clip planes available
+	MinMaxZDiscard = 64, // fragment shader discard fallback
+};
+ENUM_CLASS_BITOPS(ClipInfoFlags);
+
 struct DisplayListStackEntry {
 	u32 pc;
 	u32 offsetAddr;

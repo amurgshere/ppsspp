@@ -154,6 +154,7 @@ LinkedShader::LinkedShader(GLRenderManager *render, VShaderID VSID, Shader *vs, 
 	queries.push_back({ &u_texclamp, "u_texclamp" });
 	queries.push_back({ &u_texclampoff, "u_texclampoff" });
 	queries.push_back({ &u_texNoAlphaMul, "u_texNoAlphaMul" });
+	queries.push_back({ &u_minZmaxZ, "u_minZmaxZ" });
 	queries.push_back({ &u_lightControl, "u_lightControl" });
 
 	for (int i = 0; i < 4; i++) {
@@ -602,6 +603,8 @@ void LinkedShader::UpdateUniforms(const ShaderID &vsid, bool useBufferedRenderin
 
 		float data[4] = { viewZScale, viewZCenter, gstate_c.vpZOffset, inverseDepthScale };
 		SetFloatUniform4(render_, &u_depthRange, data);
+		float minZmaxZ[2] = { (float)gstate.getDepthRangeMin(), (float)gstate.getDepthRangeMax() };
+		SetFloatUniform2(render_, &u_minZmaxZ, minZmaxZ);
 	}
 	if (dirty & DIRTY_CULLRANGE) {
 		float minValues[4], maxValues[4];

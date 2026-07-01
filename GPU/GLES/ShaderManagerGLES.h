@@ -103,6 +103,7 @@ public:
 	int u_texclamp;
 	int u_texclampoff;
 	int u_texNoAlphaMul;
+	int u_minZmaxZ;
 
 	// Lighting
 	int u_lightControl;

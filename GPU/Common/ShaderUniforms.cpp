@@ -257,6 +257,10 @@ void BaseUpdateUniforms(UB_VS_FS_Base *ub, uint64_t dirtyUniforms, bool flipView
 		ub->depthRange[1] = viewZCenter;
 		ub->depthRange[2] = gstate_c.vpZOffset * 0.5f + 0.5f;
 		ub->depthRange[3] = 2.0f * inverseDepthScale;
+
+		// Update PSP depth range min/max for GPU-side clip planes / fragment discard.
+		ub->minZmaxZ[0] = (float)gstate.getDepthRangeMin();
+		ub->minZmaxZ[1] = (float)gstate.getDepthRangeMax();
 	}
 
 	if (dirtyUniforms & DIRTY_CULLRANGE) {

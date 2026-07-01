@@ -238,6 +238,7 @@ bool GenerateVertexShader(const VShaderID &id, char *buffer, const ShaderLanguag
 
 	bool vertexRangeCulling = id.Bit(VS_BIT_VERTEX_RANGE_CULLING) && !isModeThrough;
 	bool clipClampedDepth = !isModeThrough && gstate_c.Use(GPU_USE_DEPTH_CLAMP) && gstate_c.Use(GPU_USE_CLIP_DISTANCE);
+	bool fsMinmaxDiscard = id.Bit(VS_BIT_FS_MINMAX_DISCARD);
 	const char *clipClampedDepthSuffix = "[0]";
 	const char *vertexRangeClipSuffix = clipClampedDepth ? "[1]" : "[0]";
 
@@ -286,6 +287,9 @@ bool GenerateVertexShader(const VShaderID &id, char *buffer, const ShaderLanguag
 		WRITE(p, "layout (location = 0) out highp vec3 v_texcoord;\n");
 
 		WRITE(p, "layout (location = 3) out highp float v_fogdepth;\n");
+		if (fsMinmaxDiscard) {
+			WRITE(p, "layout (location = 4) out highp vec2 v_zw;\n");
+		}
 
 		WRITE(p, "invariant gl_Position;\n");
 	} else if (compat.shaderLanguage == HLSL_D3D11) {
@@ -345,6 +349,9 @@ bool GenerateVertexShader(const VShaderID &id, char *buffer, const ShaderLanguag
 		}
 
 		WRITE(p, "  float v_fogdepth : TEXCOORD1;\n");
+		if (fsMinmaxDiscard) {
+			WRITE(p, "  vec2 v_zw : TEXCOORD2;\n");
+		}
 		{
 			WRITE(p, "  vec4 gl_Position   : SV_Position;\n");
 			bool clipRange = vertexRangeCulling && gstate_c.Use(GPU_USE_CLIP_DISTANCE);
@@ -514,6 +521,9 @@ bool GenerateVertexShader(const VShaderID &id, char *buffer, const ShaderLanguag
 			WRITE(p, "%s highp float v_fogdepth;\n", compat.varying_vs);
 		} else {
 			WRITE(p, "%s mediump float v_fogdepth;\n", compat.varying_vs);
+		}
+		if (fsMinmaxDiscard) {
+			WRITE(p, "%s highp vec2 v_zw;\n", compat.varying_vs);
 		}
 	}
 
@@ -1264,6 +1274,14 @@ bool GenerateVertexShader(const VShaderID &id, char *buffer, const ShaderLanguag
 			WRITE(p, "    %sgl_CullDistance%s = 0.0;\n", compat.vsOutPrefix, cull1);
 			WRITE(p, "  }\n");
 		}
+	}
+
+	if (fsMinmaxDiscard) {
+		// Pass perspective-correct PSP depth to the fragment shader.
+		// v_zw.x = outPos.z * depthScale + depthOffset * outPos.w  (linear in clip space)
+		// v_zw.y = outPos.w
+		// Fragment shader divides: projZ = v_zw.x / v_zw.y  =>  PSP depth in [0..65535]
+		WRITE(p, "  %sv_zw = vec2(outPos.z * u_depthRange.x + u_depthRange.y * outPos.w, outPos.w);\n", compat.vsOutPrefix);
 	}
 
 	// We've named the output gl_Position in HLSL as well.

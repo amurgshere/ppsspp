@@ -159,6 +159,10 @@ void ComputeVertexShaderID(VShaderID *id_out, u32 vertType, bool useHWTransform,
 		}
 	}
 
+	if (!isModeThrough && useHWTransform && !gstate_c.Use(GPU_USE_CLIP_DISTANCE) && needFragmentMinMaxClipping()) {
+		id.SetBit(VS_BIT_FS_MINMAX_DISCARD);
+	}
+
 	id.SetBit(VS_BIT_FLATSHADE, doFlatShading);
 
 	// These two bits cannot be combined, otherwise havoc occurs. We get reports that indicate this happened somehow... "ERROR: 0:14: 'u_proj' : undeclared identifier"
@@ -380,6 +384,10 @@ void ComputeFragmentShaderID(FShaderID *id_out, const ComputedPipelineState &pip
 		}
 		id.SetBit(FS_BIT_FLATSHADE, doFlatShading);
 		id.SetBit(FS_BIT_COLOR_WRITEMASK, colorWriteMask);
+
+		if (!isModeThrough && !gstate_c.Use(GPU_USE_CLIP_DISTANCE) && needFragmentMinMaxClipping()) {
+			id.SetBit(FS_BIT_MINMAX_DISCARD);
+		}
 
 		// All framebuffers are array textures in Vulkan now.
 		if (gstate_c.textureIsArray && gstate_c.Use(GPU_USE_FRAMEBUFFER_ARRAYS)) {

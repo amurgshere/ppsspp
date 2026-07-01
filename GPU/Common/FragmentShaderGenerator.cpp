@@ -128,6 +128,8 @@ bool GenerateFragmentShader(const FShaderID &id, char *buffer, const ShaderLangu
 		*fragmentShaderFlags |= FragmentShaderFlags::USES_FLAT_SHADING;
 	}
 
+	bool fsMinmaxDiscard = id.Bit(FS_BIT_MINMAX_DISCARD);
+
 	ShaderDepalMode shaderDepalMode = (ShaderDepalMode)id.Bits(FS_BIT_SHADER_DEPAL_MODE, 2);
 	if (texture3D) {
 		shaderDepalMode = ShaderDepalMode::OFF;
@@ -222,6 +224,9 @@ bool GenerateFragmentShader(const FShaderID &id, char *buffer, const ShaderLangu
 			WRITE(p, "layout (location = 2) %s in lowp vec3 v_color1;\n", shading);
 		}
 		WRITE(p, "layout (location = 3) in highp float v_fogdepth;\n");
+		if (fsMinmaxDiscard) {
+			WRITE(p, "layout (location = 4) in highp vec2 v_zw;\n");
+		}
 		if (doTexture) {
 			WRITE(p, "layout (location = 0) in highp vec3 v_texcoord;\n");
 		}
@@ -288,6 +293,9 @@ bool GenerateFragmentShader(const FShaderID &id, char *buffer, const ShaderLangu
 			WRITE(p, "  vec3 v_color1: COLOR1;\n");
 		}
 		WRITE(p, "  float v_fogdepth: TEXCOORD1;\n");
+		if (fsMinmaxDiscard) {
+			WRITE(p, "  vec2 v_zw: TEXCOORD2;\n");
+		}
 		if (needFragCoord) {
 			if (compat.shaderLanguage == HLSL_D3D11) {
 				WRITE(p, "  vec4 pixelPos : SV_POSITION;\n");
@@ -401,6 +409,11 @@ bool GenerateFragmentShader(const FShaderID &id, char *buffer, const ShaderLangu
 			WRITE(p, "uniform vec3 u_fogcolor;\n");
 		}
 		WRITE(p, "%s %s float v_fogdepth;\n", compat.varying_fs, highpFog ? "highp" : "mediump");
+		if (fsMinmaxDiscard) {
+			WRITE(p, "%s highp vec2 v_zw;\n", compat.varying_fs);
+			WRITE(p, "uniform highp vec2 u_minZmaxZ;\n");
+			*uniformMask |= DIRTY_DEPTHRANGE;
+		}
 		if (doTexture) {
 			WRITE(p, "%s %s vec3 v_texcoord;\n", compat.varying_fs, highpTexcoord ? "highp" : "mediump");
 		}
@@ -504,6 +517,9 @@ bool GenerateFragmentShader(const FShaderID &id, char *buffer, const ShaderLangu
 		}
 		if (enableFog) {
 			WRITE(p, "  float v_fogdepth = In.v_fogdepth;\n");
+		}
+		if (fsMinmaxDiscard) {
+			WRITE(p, "  vec2 v_zw = In.v_zw;\n");
 		}
 		if (doTexture) {
 			WRITE(p, "  vec3 v_texcoord = In.v_texcoord;\n");
@@ -1158,6 +1174,18 @@ bool GenerateFragmentShader(const FShaderID &id, char *buffer, const ShaderLangu
 
 	if (blueToAlpha) {
 		WRITE(p, "  %s = vec4(0.0, 0.0, 0.0, %s.z);  // blue to alpha\n", compat.fragColor0, compat.fragColor0);
+	}
+
+	if (fsMinmaxDiscard) {
+		// Fragment-shader fallback for PSP min/max Z clip when hardware clip planes are unavailable.
+		// v_zw = (outPos.z * depthScale + depthOffset * outPos.w, outPos.w); divide gives PSP depth.
+		WRITE(p, "  highp float projZ = v_zw.x / v_zw.y;\n");
+		// Round: near clip uses ceil (floor(x*0.5+0.5)*2), far clip uses floor (floor(x*0.5)*2).
+		WRITE(p, "  highp float clipZNear = floor(projZ * 0.5 + 0.5) * 2.0;\n");
+		WRITE(p, "  highp float clipZFar = floor(projZ * 0.5) * 2.0;\n");
+		WRITE(p, "  if (u_minZmaxZ.x > 0.0 && clipZNear < u_minZmaxZ.x) DISCARD;\n");
+		WRITE(p, "  if (u_minZmaxZ.y < 65535.0 && clipZFar > u_minZmaxZ.y) DISCARD;\n");
+		*fragmentShaderFlags |= FragmentShaderFlags::USES_DISCARD;
 	}
 
 	if (gstate_c.Use(GPU_ROUND_FRAGMENT_DEPTH_TO_16BIT)) {

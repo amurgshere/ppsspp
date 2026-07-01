@@ -584,6 +584,8 @@ VirtualFramebuffer *FramebufferManagerCommon::DoSetRenderFrameBuffer(Framebuffer
 					DEBUG_LOG(Log::G3D, "kzCompat: clearing per-frame copy (switching to %08x)", vfb->fb_address);
 				}
 				kzFrameCopy_ = nullptr;
+				kzFrameCopyW_ = 0;
+				kzFrameCopyH_ = 0;
 			}
 		}
 
@@ -1280,7 +1282,7 @@ bool FramebufferManagerCommon::BindFramebufferAsColorTexture(int stage, VirtualF
 		// scene has already been rendered into 04044000 before we snapshot it.
 		if (PSP_CoreParameter().compat.flags().SplitFramebufferMargin) {
 			if (!kzFrameCopy_) {
-				Draw::Framebuffer *copy = GetTempFBO(TempFBO::COPY, framebuffer->renderWidth, framebuffer->renderHeight);
+				Draw::Framebuffer *copy = GetTempFBO(TempFBO::KZ_COPY, framebuffer->renderWidth, framebuffer->renderHeight);
 				if (copy) {
 					VirtualFramebuffer copyInfo = *framebuffer;
 					copyInfo.fbo = copy;
@@ -1288,12 +1290,21 @@ bool FramebufferManagerCommon::BindFramebufferAsColorTexture(int stage, VirtualF
 					CopyFramebufferForColorTexture(&copyInfo, framebuffer, flags, layer, &partial);
 					RebindFramebuffer("After kzCompat per-frame copy");
 					kzFrameCopy_ = copy;
+					kzFrameCopyW_ = (u16)framebuffer->renderWidth;
+					kzFrameCopyH_ = (u16)framebuffer->renderHeight;
 					gpuStats.numCopiesForSelfTex++;
 					DEBUG_LOG(Log::G3D, "kzCompat: made per-frame copy of %08x (%dx%d) at first self-texture",
 						framebuffer->fb_address, framebuffer->renderWidth, framebuffer->renderHeight);
 				}
 			} else {
-				DEBUG_LOG(Log::G3D, "kzCompat: reusing per-frame copy (blit saved)");
+				// Refresh last_frame_used so DecimateFBOs doesn't evict it while we still hold the pointer.
+				Draw::Framebuffer *refreshed = GetTempFBO(TempFBO::KZ_COPY, kzFrameCopyW_, kzFrameCopyH_);
+				if (refreshed != kzFrameCopy_) {
+					// Evicted and reallocated (or null) — drop the stale pointer and make a fresh copy next call.
+					kzFrameCopy_ = nullptr;
+				} else {
+					DEBUG_LOG(Log::G3D, "kzCompat: reusing per-frame copy (blit saved)");
+				}
 			}
 			if (kzFrameCopy_) {
 				draw_->BindFramebufferAsTexture(kzFrameCopy_, stage, Draw::Aspect::COLOR_BIT, layer);
@@ -1941,6 +1952,13 @@ void FramebufferManagerCommon::ResizeFramebufFBO(VirtualFramebuffer *vfb, int w,
 		draw_->BindFramebufferAsRenderTarget(vfb->fbo, { Draw::RPAction::CLEAR, Draw::RPAction::CLEAR, Draw::RPAction::CLEAR }, "ResizeFramebufFBO");
 	}
 	DiscardFramebufferCopy();
+	// If the kzCompat per-frame copy was made from this VFB before the resize, it is now stale
+	// (the VFB FBO was replaced). Null it so the next self-texture lookup makes a fresh copy.
+	if (kzFrameCopy_ && PSP_CoreParameter().compat.flags().SplitFramebufferMargin) {
+		kzFrameCopy_ = nullptr;
+		kzFrameCopyW_ = 0;
+		kzFrameCopyH_ = 0;
+	}
 	currentRenderVfb_ = vfb;
 
 	if (!vfb->fbo) {
@@ -2907,6 +2925,8 @@ void FramebufferManagerCommon::NotifyConfigChanged() {
 void FramebufferManagerCommon::DestroyAllFBOs() {
 	DiscardFramebufferCopy();
 	kzFrameCopy_ = nullptr;
+	kzFrameCopyW_ = 0;
+	kzFrameCopyH_ = 0;
 	currentRenderVfb_ = nullptr;
 	displayFramebuf_ = nullptr;
 	prevDisplayFramebuf_ = nullptr;
