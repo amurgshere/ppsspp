@@ -1135,8 +1135,6 @@ static u32 sceMpegAvcDecode(u32 mpeg, u32 auAddr, u32 frameWidth, u32 bufferAddr
 		ctx->avc.avcFrameStatus = 0;
 	}
 	s32 afterAvail = ringbuffer->packets - ctx->mediaengine->getRemainSize() / 2048;
-	// Don't actually reset avail, we only change it by what was decoded.
-	// Garbage frames can cause this to be incorrect, but some games expect that.
 	if (mpegLibVersion <= 0x0103) {
 		ringbuffer->packetsAvail += afterAvail - beforeAvail;
 	} else {
@@ -1289,8 +1287,6 @@ static int sceMpegAvcDecodeYCbCr(u32 mpeg, u32 auAddr, u32 bufferAddr, u32 initA
 		ctx->avc.avcFrameStatus = 0;
 	}
 	s32 afterAvail = ringbuffer->packets - ctx->mediaengine->getRemainSize() / 2048;
-	// Don't actually reset avail, we only change it by what was decoded.
-	// Garbage frames can cause this to be incorrect, but some games expect that.
 	if (mpegLibVersion <= 0x0103) {
 		ringbuffer->packetsAvail += afterAvail - beforeAvail;
 	} else {
@@ -1391,19 +1387,31 @@ static int sceMpegRingbufferAvailableSize(u32 ringbufferAddr) {
 		return hleLogError(Log::Mpeg, SCE_MPEG_ERROR_NOT_YET_INIT, "bad mpeg handle");
 	}
 
-	ctx->mpegRingbufferAddr = ringbufferAddr;
+	int result;
+	if (ringbufferAddr == ctx->mpegRingbufferAddr) {
+		// This is the main external ring buffer — update our tracking and return normally.
+		result = ringbuffer->packets - ringbuffer->packetsAvail;
+	} else {
+		// This is an internal/secondary ring buffer the PSP MPEG library maintains.
+		// PPSSPP doesn't update its packetsAvail, so reading it raw always returns
+		// packets (all-available = "idle"), which would cause games to think the video
+		// ended prematurely. Instead, synthesize: return 0 while the decoder has data
+		// pending, and packets when the decoder is truly done.
+		int queueSize = ctx->mediaengine ? ctx->mediaengine->getVideoBufferQueueSize() : 0;
+		result = (queueSize > 0) ? 0 : ringbuffer->packets;
+	}
 
 	hleEatCycles(2020);
 	hleReSchedule("mpeg ringbuffer avail");
 
 	static int lastAvail = 0;
 	if (lastAvail != ringbuffer->packetsAvail) {
-		DEBUG_LOG(Log::Mpeg, "%i=sceMpegRingbufferAvailableSize(%08x)", ringbuffer->packets - ringbuffer->packetsAvail, ringbufferAddr);
+		DEBUG_LOG(Log::Mpeg, "%i=sceMpegRingbufferAvailableSize(%08x)", result, ringbufferAddr);
 		lastAvail = ringbuffer->packetsAvail;
 	} else {
-		VERBOSE_LOG(Log::Mpeg, "%i=sceMpegRingbufferAvailableSize(%08x)", ringbuffer->packets - ringbuffer->packetsAvail, ringbufferAddr);
+		VERBOSE_LOG(Log::Mpeg, "%i=sceMpegRingbufferAvailableSize(%08x)", result, ringbufferAddr);
 	}
-	return hleNoLog(ringbuffer->packets - ringbuffer->packetsAvail);
+	return hleNoLog(result);
 }
 
 void PostPutAction::run(MipsCall &call) {

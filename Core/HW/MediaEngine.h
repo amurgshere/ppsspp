@@ -86,6 +86,7 @@ public:
 	s64 getLastTimeStamp();
 
 	bool IsVideoEnd() { return m_isVideoEnd; }
+	int getVideoBufferQueueSize();
 	bool IsNoAudioData();
 	bool IsActuallyPlayingAudio();
 	int VideoWidth() { return m_desWidth; }

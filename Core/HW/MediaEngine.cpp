@@ -703,8 +703,13 @@ bool MediaEngine::stepVideo(int videoPixelMode, bool skipFrame) {
 #endif
 
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57, 48, 101)
-			if (packet.size != 0)
+			if (dataEnd) {
+				// Send flush (drain) signal so the codec outputs any remaining buffered frames
+				// (e.g. B-frames or decoder-delay frames at end of stream).
+				avcodec_send_packet(m_pCodecCtx, nullptr);
+			} else if (packet.size != 0) {
 				avcodec_send_packet(m_pCodecCtx, &packet);
+			}
 			int result = avcodec_receive_frame(m_pCodecCtx, m_pFrame);
 			if (result == 0) {
 				result = 1;
@@ -762,7 +767,9 @@ bool MediaEngine::stepVideo(int videoPixelMode, bool skipFrame) {
 			if (result <= 0 && dataEnd) {
 				// Sometimes, m_readSize is less than m_streamSize at the end, but not by much.
 				// This is kinda a hack, but the ringbuffer would have to be prematurely empty too.
+				bool wasVideoEnd = m_isVideoEnd;
 				m_isVideoEnd = !bGetFrame && (m_pdata->getQueueSize() == 0);
+				DEBUG_LOG(Log::ME, "stepVideo: dataEnd break, result=%d, bGetFrame=%d, queueSize=%d, m_isVideoEnd=%d (was %d)", result, bGetFrame, m_pdata->getQueueSize(), m_isVideoEnd, wasVideoEnd);
 				if (m_isVideoEnd)
 					m_decodingsize = 0;
 				break;
@@ -1049,6 +1056,12 @@ int MediaEngine::getRemainSize() {
 	if (!m_pdata)
 		return 0;
 	return std::max(m_pdata->getRemainSize() - m_decodingsize - 2048, 0);
+}
+
+int MediaEngine::getVideoBufferQueueSize() {
+	if (!m_pdata)
+		return 0;
+	return (int)m_pdata->getQueueSize();
 }
 
 int MediaEngine::getAudioRemainSize() {
