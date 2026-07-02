@@ -151,3 +151,4 @@ RAPrefs_PPSSPP.cfg
 cmake-build-*/
 
 /.vscode/
+bash.exe.stackdump
