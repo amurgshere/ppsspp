@@ -201,3 +201,7 @@ private:
 };
 
 extern LogManager g_logManager;
+
+// Set/cleared by EmuScreen when VIRTKEY_LOG_VERBOSITY_OVERRIDE is active. Lets other systems react to the
+// override being held/toggled on, without depending on which verbosity level it was configured to use.
+extern bool g_logVerbosityOverrideActive;

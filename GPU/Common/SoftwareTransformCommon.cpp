@@ -88,6 +88,155 @@ static void RotateUVThrough(TransformedVertex v[4]) {
 		SwapUVs(v[1], v[3]);
 }
 
+static bool ShouldApplySpriteBorderFix(const GPUgstate &gstate) {
+	return gstate.isMagnifyFilteringEnabled() && gstate.isAlphaBlendEnabled() && gstate.getBlendFuncA() != GE_SRCBLEND_FIXA && gstate.isTextureAlphaUsed();
+}
+
+// Thresholds for "this is basically a full-screen background, not a sprite" - used to bail out of the
+// border fix so we don't nudge big background panels. Menu backgrounds are frequently drawn a bit
+// oversized (for scroll/parallax) rather than exactly 480x272, so we use a tolerance instead of an exact
+// equality check against the native PSP resolution.
+static constexpr float kSpriteBorderFixMaxWidth = 400.0f;   // ~83% of 480
+static constexpr float kSpriteBorderFixMaxHeight = 220.0f;  // ~81% of 272
+
+// Detects a two-triangle "sprite" quad (indices in `quad`, first 3 = triangle A, next 3 = triangle B, sharing an edge)
+// and nudges its UV/XY coordinates inward by `spriteBorderFix` texels, to avoid bilinear filtering bleeding across the
+// shared seam at upscaled resolutions (e.g. GTA, Ridge Racer, LocoRoco). Ported from hrydgard/ppsspp.
+// Note: This modifies the U/V coordinates of transformed.
+static void ApplySpriteBorderFixTriangles(TransformedVertex *transformed, const u16 *quad, float uScale, float vScale, float spriteBorderFix) {
+	// We have two triangles, but the vertex order can really be anything. We just need to find the shared edge, and then check the opposite vertices.
+
+	// sharedA and sharedB are indices into transformed, picked from the quad array.
+	// We find shared indices between the two triangles through a double loop.
+	int sharedA = -1;
+	int sharedB = -1;
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			if (quad[i] == quad[3 + j]) {
+				if (sharedA == -1) {
+					sharedA = quad[i];
+				} else if (quad[i] != sharedA) {
+					sharedB = quad[i];
+				}
+			}
+		}
+	}
+
+	if (sharedA == -1 || sharedB == -1) {
+		// For this detection method, we require two vertices to be shared between the two triangles.
+		// We'll miss sprites made from pure triangle lists, but let's look into that later.
+		return;
+	}
+
+	// Now, search for the two other corners.
+	int cornerA = -1;
+	int cornerB = -1;
+	for (int i = 0; i < 6; i++) {
+		if (quad[i] != sharedA && quad[i] != sharedB) {
+			if (cornerA == -1) {
+				cornerA = quad[i];
+			} else {
+				cornerB = quad[i];
+				break;
+			}
+		}
+	}
+
+	if (cornerA == cornerB) {
+		_dbg_assert_(false);
+		// This should never happen, but just in case.
+		return;
+	}
+	_dbg_assert_(cornerA != -1 && cornerB != -1 && sharedA != sharedB && sharedA != cornerA && sharedA != cornerB && sharedB != cornerA && sharedB != cornerB);
+
+	//  SharedA ---------------- CornerA
+	//      |   \                   |
+	//      |       \               |
+	//      |           \           |
+	//      |               \       |
+	//      |                   \   |
+	//  CornerB ---------------- SharedB
+
+	// The border fix will be to slightly move the UVs inward (and XY by a corresponding amount), so that on upscaled resolutions we can avoid unexpected filtering artifacts. They will
+	// be moved inward by `spriteBorderFix` texels.
+
+	TransformedVertex &vSharedA = transformed[sharedA];
+	TransformedVertex &vCornerA = transformed[cornerA];
+	TransformedVertex &vSharedB = transformed[sharedB];
+	TransformedVertex &vCornerB = transformed[cornerB];
+
+	bool validSprite = false;
+
+	// Now there's two possible orientations for the X/Y coordinates. Either the second corners shares the Y axis with the opposite vertices, or the X axis.
+	if (vSharedA.y == vCornerA.y && vSharedB.y == vCornerB.y) {
+		// Shared Y axis. Check that the X axis is correct.
+		if (vSharedA.x == vCornerB.x && vSharedB.x == vCornerA.x) {
+			validSprite = vSharedA.u == vCornerB.u && vSharedB.u == vCornerA.u &&
+				vSharedA.v == vCornerA.v && vSharedB.v == vCornerB.v;
+		}
+	} else if (vSharedA.x == vCornerA.x && vSharedB.x == vCornerB.x) {
+		// Shared X axis. Check that the Y axis is correct.
+		if (vSharedB.y == vCornerA.y && vSharedA.y == vCornerB.y) {
+			// validSprite = vSharedA.u == vCornerA.u && vSharedA.v == vCornerA.v &&
+			// 	vSharedB.u == vCornerB.u && vSharedB.v == vCornerB.v;
+		}
+	}
+
+	// Upstream's current implementation only applies this fix to sprites that are "flat" (coplanar, no Z
+	// gradient) - our fork doesn't have the ClipInfoFlags machinery that tracks this, so we approximate it
+	// directly: require all four corners to share the same Z. This excludes content that merely looks like
+	// a flat 2D sprite by X/Y/U/V but is actually part of a 3D surface (e.g. a UI overlay quad stacked with
+	// depth variance), which was getting incorrectly touched and producing asymmetric-looking border shrink.
+	if (validSprite) {
+		if (vSharedA.z != vSharedB.z || vSharedA.z != vCornerA.z || vSharedA.z != vCornerB.z) {
+			validSprite = false;
+		}
+	}
+
+	const float invUScale = 1.0f / uScale;
+	const float invVScale = 1.0f / vScale;
+	if (validSprite) {
+		// We have a valid sprite! Apply the border fix if needed.
+		if (spriteBorderFix != 0.0f) {
+			const bool topleft = spriteBorderFix < 0.0f;
+			const float fixAmount = fabsf(spriteBorderFix);
+
+			const float uBorderFix = fixAmount * invUScale;
+			const float vBorderFix = fixAmount * invVScale;
+			// Move the UVs inward by the border fix, so we stop sampling the contaminated edge texel that
+			// bleeds in from a neighboring sprite packed in the same texture atlas. This is a sub-pixel
+			// nudge (half a texel by default) so it's imperceptible on real sprites - but visibly crops
+			// content on tiny pixel-mapped UI quads, which is why those are excluded (pixelMapped check
+			// upstream / RECT path) rather than by shrinking the fix amount.
+			const float dx = (vSharedB.x - vSharedA.x);
+			const float dy = (vSharedB.y - vSharedA.y);
+			const float du = (vSharedB.u - vSharedA.u);
+			const float dv = (vSharedB.v - vSharedA.v);
+			// Avoid messing with full screen (or near-full-screen background panel) sprites.
+			if (du != 0.0f && fabsf(dx) < kSpriteBorderFixMaxWidth) {
+				const float uSign = (du > 0.0f ? 1.0f : -1.0f);
+				const float uAmount = uBorderFix * uSign;
+				if (topleft) {
+					vSharedA.u += uAmount;
+					vCornerB.u += uAmount;
+				}
+				vCornerA.u -= uAmount;
+				vSharedB.u -= uAmount;
+			}
+			if (dv != 0.0f && fabsf(dy) < kSpriteBorderFixMaxHeight) {
+				const float vSign = (dv > 0.0f ? 1.0f : -1.0f);
+				const float vAmount = vBorderFix * vSign;
+				if (topleft) {
+					vSharedA.v += vAmount;
+					vCornerA.v += vAmount;
+				}
+				vCornerB.v -= vAmount;
+				vSharedB.v -= vAmount;
+			}
+		}
+	}
+}
+
 // Clears on the PSP are best done by drawing a series of vertical strips
 // in clear mode. This tries to detect that.
 static bool IsReallyAClear(const TransformedVertex *transformed, int numVerts, float x2, float y2) {
@@ -591,6 +740,23 @@ void SoftwareTransform::BuildDrawingParams(int prim, int vertexCount, u32 vertTy
 				}
 				result->pixelMapped = pixelMapped;
 			}
+
+			// Sprite border fix: nudge detected two-triangle sprite quads' UVs inward by a fraction of a texel,
+			// to avoid bilinear filtering bleeding across the shared seam at upscaled resolutions. Per-game opt-in
+			// via the SpriteBorderFix compat.ini flag (e.g. GTA, Ridge Racer, LocoRoco). Independent of the pixel
+			// mapping check above, since that one only fires for a single quad (vertexCount <= 6).
+			if (prim == GE_PRIM_TRIANGLES && ShouldApplySpriteBorderFix(gstate)) {
+				const float spriteBorderFix = PSP_CoreParameter().compat.flags().SpriteBorderFix;
+				if (spriteBorderFix != 0.0f) {
+					const u16 *indsIn = (const u16 *)inds;
+					const float uscale = gstate_c.curTextureWidth;
+					const float vscale = gstate_c.curTextureHeight;
+					for (int t = 0; t < vertexCount - 5; t += 6) {
+						const u16 *quad = indsIn + t;
+						ApplySpriteBorderFixTriangles(transformed, quad, uscale, vscale, spriteBorderFix);
+					}
+				}
+			}
 		}
 	}
 
@@ -651,6 +817,18 @@ bool SoftwareTransform::ExpandRectangles(int vertexCount, int &numDecodedVerts, 
 
 	bool pixelMapped = g_Config.bSmart2DTexFiltering && !gstate_c.textureIsVideo;
 
+	// Sprite border fix for RECTs, ported from hrydgard/ppsspp. Negative compat.ini values shrink all four
+	// UV edges inward symmetrically (stop sampling the contaminated edge texel that bleeds in from a
+	// neighboring sprite in the same atlas). Positive values only expand the right/bottom UV edges outward
+	// instead (used for tiled backgrounds, where each tile's far edge grows to cover the seam against its
+	// neighbor, and the neighbor's own near edge is left alone to avoid double-covering it). Skipped
+	// entirely when pixel-mapped (1:1) sprites are detected below, since those aren't filtered at all
+	// (texel maps exactly to a pixel) and touching their UVs would visibly affect their tiny on-screen
+	// content instead of doing nothing.
+	float spriteBorderFix = ShouldApplySpriteBorderFix(gstate) ? PSP_CoreParameter().compat.flags().SpriteBorderFix : 0.0f;
+	const float spriteBorderFixAmount = fabsf(spriteBorderFix);
+	const bool spriteBorderFixShrink = spriteBorderFix < 0.0f;
+
 	for (int i = 0; i < vertexCount; i += 2) {
 		const TransformedVertex &transVtxTL = transformed[indsIn[i + 0]];
 		const TransformedVertex &transVtxBR = transformed[indsIn[i + 1]];
@@ -668,32 +846,55 @@ bool SoftwareTransform::ExpandRectangles(int vertexCount, int &numDecodedVerts, 
 			}
 		}
 
+		// Don't apply the border fix to rects detected as pixel-mapped (1:1) sprites - those don't need it.
+		const bool applyBorderFix = spriteBorderFixAmount != 0.0f && !pixelMapped;
+
+		const float rectDx = transVtxBR.x - transVtxTL.x;
+		const float rectDy = transVtxBR.y - transVtxTL.y;
+		// Avoid messing with full-screen-width/height background tiles (e.g. tiled strip backgrounds),
+		// same reasoning and thresholds as the triangle-pair path above. Each axis is independent, since
+		// a background strip can be full-height but only partial-width (or vice versa).
+		const bool applyBorderFixX = applyBorderFix && fabsf(rectDx) < kSpriteBorderFixMaxWidth;
+		const bool applyBorderFixY = applyBorderFix && fabsf(rectDy) < kSpriteBorderFixMaxHeight;
+
+		// UV-space fix amount, in the same normalized/pixel units u/v are in pre-scale (matches the
+		// triangle-pair path's uBorderFix/vBorderFix).
+		const float uFix = applyBorderFixX ? (spriteBorderFixAmount / uscale) / gstate_c.curTextureWidth : 0.0f;
+		const float vFix = applyBorderFixY ? (spriteBorderFixAmount / vscale) / gstate_c.curTextureHeight : 0.0f;
+		// Right/bottom edges always shrink inward by the fix amount (matches upstream: BR corner's UV is
+		// always reduced). Left/top edges only additionally shrink inward when the compat value is negative
+		// (symmetric case) - positive values leave left/top untouched (asymmetric shrink, not expand).
+		const float uFixL = spriteBorderFixShrink ? uFix : 0.0f;
+		const float vFixT = spriteBorderFixShrink ? vFix : 0.0f;
+		const float uFixR = uFix;
+		const float vFixB = vFix;
+
 		// We have to turn the rectangle into two triangles, so 6 points.
 		// This is 4 verts + 6 indices.
 
 		// bottom right
 		trans[0] = transVtxBR;
-		trans[0].u = transVtxBR.u * uscale;
-		trans[0].v = transVtxBR.v * vscale;
+		trans[0].u = (transVtxBR.u - uFixR) * uscale;
+		trans[0].v = (transVtxBR.v - vFixB) * vscale;
 
 		// top right
 		trans[1] = transVtxBR;
 		trans[1].y = transVtxTL.y;
-		trans[1].u = transVtxBR.u * uscale;
-		trans[1].v = transVtxTL.v * vscale;
+		trans[1].u = (transVtxBR.u - uFixR) * uscale;
+		trans[1].v = (transVtxTL.v + vFixT) * vscale;
 
 		// top left
 		trans[2] = transVtxBR;
 		trans[2].x = transVtxTL.x;
 		trans[2].y = transVtxTL.y;
-		trans[2].u = transVtxTL.u * uscale;
-		trans[2].v = transVtxTL.v * vscale;
+		trans[2].u = (transVtxTL.u + uFixL) * uscale;
+		trans[2].v = (transVtxTL.v + vFixT) * vscale;
 
 		// bottom left
 		trans[3] = transVtxBR;
 		trans[3].x = transVtxTL.x;
-		trans[3].u = transVtxTL.u * uscale;
-		trans[3].v = transVtxBR.v * vscale;
+		trans[3].u = (transVtxTL.u + uFixL) * uscale;
+		trans[3].v = (transVtxBR.v - vFixB) * vscale;
 
 		// That's the four corners. Now process UV rotation.
 		if (throughmode) {

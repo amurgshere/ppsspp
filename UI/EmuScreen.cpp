@@ -853,16 +853,16 @@ void EmuScreen::onVKey(VirtKey virtualKeyCode, bool down) {
 		if (!g_Config.bEnableLogging)
 			break;
 		bool holdMode = (g_Config.iLogVerbosityOverrideMode == 1);
-		// Gate on !logVerbosityOverrideActive_ to prevent key-repeat events from re-saving
+		// Gate on !g_logVerbosityOverrideActive to prevent key-repeat events from re-saving
 		// the already-overridden levels into savedLogLevels_ (which would break restore on release).
-		bool shouldActivate = down && !logVerbosityOverrideActive_;
-		bool shouldDeactivate = holdMode ? (!down && logVerbosityOverrideActive_) : (down && logVerbosityOverrideActive_);
+		bool shouldActivate = down && !g_logVerbosityOverrideActive;
+		bool shouldDeactivate = holdMode ? (!down && g_logVerbosityOverrideActive) : (down && g_logVerbosityOverrideActive);
 		if (shouldActivate) {
 			for (size_t i = 0; i < (size_t)Log::NUMBER_OF_LOGS; i++) {
 				savedLogLevels_[i] = g_log[i].level;
 				g_log[i].level = (LogLevel)g_Config.iLogVerbosityOverrideLevel;
 			}
-			logVerbosityOverrideActive_ = true;
+			g_logVerbosityOverrideActive = true;
 			int levelIdx = g_Config.iLogVerbosityOverrideLevel - 1;
 			const char *levelName = (levelIdx >= 0 && levelIdx < logLevelListCount) ? logLevelList[levelIdx] : "?";
 			std::string msg = std::string("Log verbosity overridden: ") + levelName;
@@ -875,7 +875,7 @@ void EmuScreen::onVKey(VirtKey virtualKeyCode, bool down) {
 			for (size_t i = 0; i < (size_t)Log::NUMBER_OF_LOGS; i++) {
 				g_log[i].level = savedLogLevels_[i];
 			}
-			logVerbosityOverrideActive_ = false;
+			g_logVerbosityOverrideActive = false;
 		}
 		break;
 	}

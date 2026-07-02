@@ -43,6 +43,7 @@
 
 LogChannel g_log[(size_t)Log::NUMBER_OF_LOGS];
 LogManager g_logManager;
+bool g_logVerbosityOverrideActive = false;
 
 const char *hleCurrentThreadName = nullptr;
 
