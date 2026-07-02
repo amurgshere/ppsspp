@@ -1,73 +1,62 @@
 # PPSSPP Switch Port — Project Context
 
-## What this repo is
+Fork of **m4xw/ppsspp** (`rebase_2026`), a Switch homebrew port based on **v1.19.3** of hrydgard/ppsspp.
 
-A fork of **m4xw/ppsspp** (`rebase_2026` branch), which is a Switch homebrew port of PPSSPP based on **v1.19.3** of hrydgard/ppsspp. The upstream Switch port lives at https://github.com/m4xw/ppsspp.
+**Active branch: `switch-enhancements`.** All new work goes here.
 
+**Remotes:** `origin` = m4xw/ppsspp (base fork) · `hrydgard` = upstream PPSSPP (cherry-picks, version tags) · `amurgshere` = this fork (push here only, never `origin`/`hrydgard`).
 
-## Build environment
+## Switch build (Docker)
 
-Docker container named `ppsspp-build` using `devkitpro/devkita64:latest`. It is persistent — start it with `docker start ppsspp-build` if stopped.
+Container `ppsspp-build` (`devkitpro/devkita64:latest`), persistent — `docker start ppsspp-build` if stopped. Source mounted at `/app`, build output at `/app/build-switch/`.
 
-Source is mounted at `/app` inside the container. Build output is at `/app/build-switch/`.
-
-**To rebuild (container already running):**
+Rebuild:
 ```powershell
 docker exec ppsspp-build bash -lc 'stdbuf -oL -eL make -C /app/build-switch -j$(nproc) 2>&1'
 ```
-Stream this to a file and watch with `Get-Content` — see global CLAUDE.md for the pattern.
-
-**After a successful build, generate the NRO manually** (make does not do this):
+Generate NRO (make doesn't do this):
 ```bash
 docker exec ppsspp-build bash -c "nacptool --create 'PPSSPP' 'PPSSPP Team' '1.19.3' /app/build-switch/PPSSPP_GL.nacp && elf2nro /app/build-switch/PPSSPPSDL.elf /app/build-switch/PPSSPP_GL.nro --nacp=/app/build-switch/PPSSPP_GL.nacp --icon=/app/icons/icon-512.jpg"
 ```
+Copy `PPSSPP_GL.nro` to the Switch SD card as `switch/PPSSPP_GL/PPSSPP_GL.nro` (~30MB).
 
-Then copy `/app/build-switch/PPSSPP_GL.nro` to the Switch SD card as `switch/PPSSPP_GL/PPSSPP_GL.nro`. The NRO is ~30MB.
+Container recreation / CMake reconfigure steps: see memory (`project-docker-setup`) — rarely needed.
 
-### Recreating the container from scratch
+## Windows build (local, no CI)
 
-```bash
-docker run -d --name ppsspp-build \
-  -v "H:/Programming/ppsspp:/app" \
-  devkitpro/devkita64:latest \
-  sleep infinity
-
-docker exec ppsspp-build bash -c "apt-get update && apt-get install -y \
-  build-essential cmake git python3 pkg-config libarchive-tools gettext"
-
-docker exec ppsspp-build bash -c "dkp-pacman -S --noconfirm \
-  switch-sdl2 switch-ffmpeg switch-dav1d switch-miniupnpc \
-  switch-freetype switch-libpng switch-zlib switch-mesa"
+VS Build Tools 2022, MSBuild at the default install path.
+```powershell
+$msbuild = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\amd64\MSBuild.exe"
+& $msbuild /m /p:TrackFileAccess=false /p:Configuration=Release /p:Platform=x64 Windows\PPSSPP.sln
 ```
+Run from repo root. Output: `PPSSPPWindows64.exe` (~19MB).
 
-### Configuring CMake (clean build dir required)
+Add `/t:<ProjectName>` to build one project (name may differ from folder/vcxproj):
+- `/t:UnitTest` → `Windows\x64\Release\UnitTest.exe` (run all: no args; run one: `UnitTest.exe <TestName>`)
+- `/t:PPSSPPHeadless` → `Windows\x64\Release\PPSSPPHeadless.exe`
 
-```bash
-docker exec ppsspp-build bash -lc "
-  git -C /app submodule update --init --recursive && \
-  rm -rf /app/build-switch && mkdir /app/build-switch && cd /app/build-switch && \
-  cmake /app \
-    -DUSE_LIBNX=ON \
-    -DUSING_X11_VULKAN=OFF \
-    -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/Switch.cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_FLAGS_RELEASE='-Oz -flto -DNDEBUG' \
-    -DCMAKE_CXX_FLAGS_RELEASE='-Oz -flto -DNDEBUG' \
-    -DCMAKE_EXE_LINKER_FLAGS_RELEASE='-Wl,--strip-all' \
-    -DARMIPS_USE_STD_FILESYSTEM=ON \
-    2>&1 | tail -10"
-```
+## pspautotests headless suite
 
-**Critical cmake gotchas:**
-- Must use `bash -lc` (login shell) — `DEVKITPRO` only loads in login shells
-- `USING_X11_VULKAN=OFF` required — container has no X11 headers
-- `CMAKE_TOOLCHAIN_FILE` required — sets up devkitA64 cross-compiler, libnx headers, `-specs=switch.specs`
-- Never pass `-DCMAKE_EXE_LINKER_FLAGS` — it overrides the toolchain's library paths and causes `-lnx not found`. Use `_RELEASE` suffixed variants only.
-- Always wipe build-switch/ fully before reconfiguring — partial state breaks SDL2/libnx detection
-- `-DARMIPS_USE_STD_FILESYSTEM=ON` required — updated armips uses `ext/filesystem` (ghc) by default, which isn't compatible with libnx; this switches it to `std::filesystem` (GCC 15 supports it fine)
+`test.py` (repo root) drives the `pspautotests` submodule via the headless exe (auto-detected). Use a real `python.exe`, not the Windows Store alias stub — check with `where.exe python`.
 
+- `python test.py -g` = `tests_good` (must pass) · `-b` = `tests_next` (WIP, not required). Combining `-g -b` only runs `-g`.
+- `test.py <name>` silently skips names also in `tests_ignored` — edit that list locally (don't commit) to test something on it.
+- If a test fails with "Test init failed", **check the `.prx` actually exists** in the submodule checkout before assuming an emulation bug — the pin was once >2.5yr stale, causing ~20 tests to have no binary at all. Bump via `git ls-tree hrydgard/master pspautotests` to match upstream's pin.
 
+## NRO build/commit workflow
+
+Always build the NRO before committing. Never push without explicit permission. No `Co-Authored-By` trailers.
+
+1. Increment the build counter (tracked in memory) only when ready to commit, not per rebuild iteration.
+2. Build NRO as `PPSSPP_GL_NNNN.nro` in `build-switch/`. Overwrite in place for fix iterations (don't advance counter).
+3. User reviews on-Switch.
+4. Commit (only when user asks) → rename NRO to `PPSSPP_GL_NNNN_hhhhhhhh.nro` using `git rev-parse --short HEAD` **taken after** the commit.
+5. Push only when explicitly told. Same pattern for `PPSSPPWindows64_NNNN_hhhhhhhh.exe`.
+
+## Merging Switch code into shared files
+
+m4xw's port often added Switch-only code to shared files without platform guards (`#if PPSSPP_PLATFORM(SWITCH)` / `if(USE_LIBNX)`), breaking other platforms. If a non-Switch build breaks after merging Switch-side work, check for this first. Detailed offender list: memory (`project-m4xw-breakages`).
 
 ## Versioning
 
-Version string comes from `git describe` — tags fetched from `hrydgard` remote, shows `v1.19.3-N-gHASH`.
+`git describe` (tags from `hrydgard` remote) → `v1.19.3-N-gHASH`.
