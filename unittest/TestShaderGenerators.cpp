@@ -388,6 +388,9 @@ bool TestVertexShaders() {
 		// If mode is through, we won't do hardware transform.
 		if (id.Bit(VS_BIT_IS_THROUGH)) {
 			id.SetBit(VS_BIT_USE_HW_TRANSFORM, 0);
+			// Real ID generation never sets this bit for through-mode (see ShaderId.cpp) -
+			// u_depthRange isn't declared in through-mode vertex shaders.
+			id.SetBit(VS_BIT_FS_MINMAX_DISCARD, 0);
 		}
 		if (!id.Bit(VS_BIT_USE_HW_TRANSFORM)) {
 			id.SetBit(VS_BIT_ENABLE_BONES, 0);
