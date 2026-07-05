@@ -19,6 +19,7 @@
 #include <cmath>
 
 #include "Common/CPUDetect.h"
+#include "Common/Log.h"
 #include "Common/Math/math_util.h"
 #include "Common/GPU/OpenGL/GLFeatures.h"
 #include "Core/Config.h"
@@ -92,6 +93,13 @@ static bool ShouldApplySpriteBorderFix(const GPUgstate &gstate) {
 	return gstate.isMagnifyFilteringEnabled() && gstate.isAlphaBlendEnabled() && gstate.getBlendFuncA() != GE_SRCBLEND_FIXA && gstate.isTextureAlphaUsed();
 }
 
+// Per-game override (compat.ini "DisableSmart2DTexFiltering") to force this game's effective
+// Smart 2D Texture Filtering to off regardless of the user's global setting, for games where the
+// setting only makes bilinear-filtering seam bleed worse (e.g. LocoRoco's pause-screen icons).
+static bool Smart2DTexFilteringEnabled() {
+	return g_Config.bSmart2DTexFiltering && !PSP_CoreParameter().compat.flags().DisableSmart2DTexFiltering;
+}
+
 // Thresholds for "this is basically a full-screen background, not a sprite" - used to bail out of the
 // border fix so we don't nudge big background panels. Menu backgrounds are frequently drawn a bit
 // oversized (for scroll/parallax) rather than exactly 480x272, so we use a tolerance instead of an exact
@@ -99,9 +107,32 @@ static bool ShouldApplySpriteBorderFix(const GPUgstate &gstate) {
 static constexpr float kSpriteBorderFixMaxWidth = 400.0f;   // ~83% of 480
 static constexpr float kSpriteBorderFixMaxHeight = 220.0f;  // ~81% of 272
 
+// Checks whether a 6-vertex (two-triangle) quad is an exact 1:1 pixel mapping (one texel per screen pixel,
+// no scaling) - same du==dx/dv==dy test as the whole-draw pixelMapped check above, but scoped to a single
+// quad so it also works inside a batch of several quads in one draw call. Pixel-mapped quads aren't filtered
+// at all, so nudging their UVs would visibly crop content instead of doing nothing - must be excluded from
+// the border fix below, same as the RECT path already excludes them via ExpandRectangles's pixelMapped check.
+static bool IsQuadPixelMapped(const TransformedVertex *transformed, const u16 *quad, float uscale, float vscale) {
+	for (int t = 0; t < 6; t += 3) {
+		struct { int a; int b; } pairs[] = { {0, 1}, {1, 2}, {2, 0} };
+		for (int i = 0; i < ARRAY_SIZE(pairs); i++) {
+			int a = quad[t + pairs[i].a];
+			int b = quad[t + pairs[i].b];
+			float du = fabsf((transformed[a].u - transformed[b].u) * uscale);
+			float dv = fabsf((transformed[a].v - transformed[b].v) * vscale);
+			float dx = fabsf(transformed[a].x - transformed[b].x);
+			float dy = fabsf(transformed[a].y - transformed[b].y);
+			if (du != dx || dv != dy) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
 // Detects a two-triangle "sprite" quad (indices in `quad`, first 3 = triangle A, next 3 = triangle B, sharing an edge)
 // and nudges its UV/XY coordinates inward by `spriteBorderFix` texels, to avoid bilinear filtering bleeding across the
-// shared seam at upscaled resolutions (e.g. GTA, Ridge Racer, LocoRoco). Ported from hrydgard/ppsspp.
+// shared seam at upscaled resolutions (e.g. GTA, Ridge Racer). Ported from hrydgard/ppsspp.
 // Note: This modifies the U/V coordinates of transformed.
 static void ApplySpriteBorderFixTriangles(TransformedVertex *transformed, const u16 *quad, float uScale, float vScale, float spriteBorderFix) {
 	// We have two triangles, but the vertex order can really be anything. We just need to find the shared edge, and then check the opposite vertices.
@@ -709,10 +740,15 @@ void SoftwareTransform::BuildDrawingParams(int prim, int vertexCount, u32 vertTy
 
 				inds = newInds;
 			}
-		} else if (throughmode && g_Config.bSmart2DTexFiltering && !gstate_c.textureIsVideo) {
-			// We check some common cases for pixel mapping.
+		} else if (throughmode && Smart2DTexFilteringEnabled() && !gstate_c.textureIsVideo) {
+			// We check some common cases for pixel mapping. Runs across the whole batch (not just a single
+			// quad) so that games which batch several sprite quads into one draw call (e.g. LocoRoco) still
+			// get the forced-nearest optimization below when every quad in the batch is exactly 1:1 mapped -
+			// previously this only fired for vertexCount <= 6, so such batches fell through to bilinear
+			// filtering unconditionally, bleeding at seams with no compat.ini flag able to prevent it (the
+			// SpriteBorderFix nudge is a separate, unrelated mechanism for sprites that aren't pixel-mapped).
 			// TODO: It's not really optimal that some previous step has removed the triangle strip.
-			if (vertexCount <= 6 && prim == GE_PRIM_TRIANGLES) {
+			if (prim == GE_PRIM_TRIANGLES) {
 				// It's enough to check UV deltas vs pos deltas between vertex pairs:
 				// 0-1 1-3 3-2 2-0. Maybe can even skip the last one. Probably some simple math can get us that sequence.
 				// Unfortunately we need to reverse the previous UV scaling operation. Fortunately these are powers of two
@@ -743,8 +779,9 @@ void SoftwareTransform::BuildDrawingParams(int prim, int vertexCount, u32 vertTy
 
 			// Sprite border fix: nudge detected two-triangle sprite quads' UVs inward by a fraction of a texel,
 			// to avoid bilinear filtering bleeding across the shared seam at upscaled resolutions. Per-game opt-in
-			// via the SpriteBorderFix compat.ini flag (e.g. GTA, Ridge Racer, LocoRoco). Independent of the pixel
-			// mapping check above, since that one only fires for a single quad (vertexCount <= 6).
+			// via the SpriteBorderFix compat.ini flag (e.g. GTA, Ridge Racer). Each quad in the batch is checked
+			// for 1:1 pixel mapping (IsQuadPixelMapped) and skipped if so - separate from result->pixelMapped
+			// above, which only covers single-quad draws (vertexCount <= 6); this handles multi-quad batches too.
 			if (prim == GE_PRIM_TRIANGLES && ShouldApplySpriteBorderFix(gstate)) {
 				const float spriteBorderFix = PSP_CoreParameter().compat.flags().SpriteBorderFix;
 				if (spriteBorderFix != 0.0f) {
@@ -753,7 +790,9 @@ void SoftwareTransform::BuildDrawingParams(int prim, int vertexCount, u32 vertTy
 					const float vscale = gstate_c.curTextureHeight;
 					for (int t = 0; t < vertexCount - 5; t += 6) {
 						const u16 *quad = indsIn + t;
-						ApplySpriteBorderFixTriangles(transformed, quad, uscale, vscale, spriteBorderFix);
+						if (!IsQuadPixelMapped(transformed, quad, uscale, vscale)) {
+							ApplySpriteBorderFixTriangles(transformed, quad, uscale, vscale, spriteBorderFix);
+						}
 					}
 				}
 			}
@@ -815,7 +854,7 @@ bool SoftwareTransform::ExpandRectangles(int vertexCount, int &numDecodedVerts, 
 		vscale /= gstate_c.curTextureHeight;
 	}
 
-	bool pixelMapped = g_Config.bSmart2DTexFiltering && !gstate_c.textureIsVideo;
+	bool pixelMapped = Smart2DTexFilteringEnabled() && !gstate_c.textureIsVideo;
 
 	// Sprite border fix for RECTs, ported from hrydgard/ppsspp. Negative compat.ini values shrink all four
 	// UV edges inward symmetrically (stop sampling the contaminated edge texel that bleeds in from a

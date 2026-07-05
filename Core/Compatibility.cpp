@@ -155,6 +155,7 @@ void Compatibility::CheckSettings(IniFile &iniFile, const std::string &gameID) {
 	CheckSetting(iniFile, gameID, "IgnoreEnqueue", &flags_.IgnoreEnqueue);
 	CheckSetting(iniFile, gameID, "MsgDialogAutoStatus", &flags_.MsgDialogAutoStatus);
 	CheckSetting(iniFile, gameID, "SpriteBorderFix", &flags_.SpriteBorderFix);
+	CheckSetting(iniFile, gameID, "DisableSmart2DTexFiltering", &flags_.DisableSmart2DTexFiltering);
 }
 
 void Compatibility::CheckVRSettings(IniFile &iniFile, const std::string &gameID) {

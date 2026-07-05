@@ -118,6 +118,7 @@ struct CompatFlags {
 	bool IgnoreEnqueue;
 	bool MsgDialogAutoStatus;
 	float SpriteBorderFix;
+	bool DisableSmart2DTexFiltering;
 };
 
 struct VRCompat {
