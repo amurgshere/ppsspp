@@ -6,6 +6,15 @@ Fork of **m4xw/ppsspp** (`rebase_2026`), a Switch homebrew port based on **v1.19
 
 **Remotes:** `origin` = m4xw/ppsspp (base fork) · `hrydgard` = upstream PPSSPP (cherry-picks, version tags) · `amurgshere` = this fork (push here only, never `origin`/`hrydgard`).
 
+Detailed, rarely-needed reference docs live in `Claude-References/`:
+
+| File | Contents |
+|---|---|
+| `docker-setup.md` | Full container recreation + CMake reconfigure steps for the Switch build |
+| `m4xw-platform-breakages.md` | Offender table of Switch-only code m4xw added to shared files without platform guards |
+| `ge-frame-dump-technique.md` | Using `.ppdmp` GE frame dumps as ground truth when log-based rendering debugging stalls |
+| `debug-visualization-pattern.md` | Live visual debug toggles tied to existing controls; verifying hand-ports against upstream evidence |
+
 ## Switch build (Docker)
 
 Container `ppsspp-build` (`devkitpro/devkita64:latest`), persistent — `docker start ppsspp-build` if stopped. Source mounted at `/app`, build output at `/app/build-switch/`.
@@ -20,7 +29,7 @@ docker exec ppsspp-build bash -c "nacptool --create 'PPSSPP' 'PPSSPP Team' '1.19
 ```
 Copy `PPSSPP_GL.nro` to the Switch SD card as `switch/PPSSPP_GL/PPSSPP_GL.nro` (~30MB).
 
-Container recreation / CMake reconfigure steps: see memory (`project-docker-setup`) — rarely needed.
+Container recreation / CMake reconfigure steps: see `Claude-References/docker-setup.md` — rarely needed.
 
 ## Windows build (local, no CI)
 
@@ -55,7 +64,7 @@ Always build the NRO before committing. Never push without explicit permission. 
 
 ## Merging Switch code into shared files
 
-m4xw's port often added Switch-only code to shared files without platform guards (`#if PPSSPP_PLATFORM(SWITCH)` / `if(USE_LIBNX)`), breaking other platforms. If a non-Switch build breaks after merging Switch-side work, check for this first. Detailed offender list: memory (`project-m4xw-breakages`).
+m4xw's port often added Switch-only code to shared files without platform guards (`#if PPSSPP_PLATFORM(SWITCH)` / `if(USE_LIBNX)`), breaking other platforms. If a non-Switch build breaks after merging Switch-side work, check for this first. Detailed offender list: `Claude-References/m4xw-platform-breakages.md`.
 
 ## Versioning
 
