@@ -20,6 +20,8 @@
 #include <string>
 #include <cstdint>
 #include <set>
+#include <utility>
+#include <vector>
 
 // Compatibility flags are controlled by assets/compat.ini.
 // Alternatively, if PSP/System/compat.ini exists, it is merged on top, to enable editing
@@ -149,6 +151,12 @@ public:
 	const std::string &GetActiveFlagsString() const {
 		return activeList_;
 	}
+
+	// For display purposes (e.g. a dev tools screen): returns every compat.ini section that has
+	// an entry for gameID, with that entry's raw string value, across both the bundled asset
+	// compat.ini and the user-editable one in the system directory. Independent of flags_/Load(),
+	// so it can be called for a game other than the currently running one.
+	static std::vector<std::pair<std::string, std::string>> GetGameSettings(const std::string &gameID);
 
 private:
 	void Clear();

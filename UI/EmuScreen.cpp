@@ -852,6 +852,8 @@ void EmuScreen::onVKey(VirtKey virtualKeyCode, bool down) {
 	{
 		if (!g_Config.bEnableLogging)
 			break;
+		if (g_Config.iLogVerbosityOverrideMode == 2)  // Disabled
+			break;
 		bool holdMode = (g_Config.iLogVerbosityOverrideMode == 1);
 		// Gate on !g_logVerbosityOverrideActive to prevent key-repeat events from re-saving
 		// the already-overridden levels into savedLogLevels_ (which would break restore on release).

@@ -77,6 +77,34 @@ void Compatibility::Load(const std::string &gameID) {
 	}
 }
 
+std::vector<std::pair<std::string, std::string>> Compatibility::GetGameSettings(const std::string &gameID) {
+	std::vector<std::pair<std::string, std::string>> results;
+
+	auto scan = [&](IniFile &iniFile) {
+		for (auto &section : iniFile.Sections()) {
+			std::string value;
+			if (section->Get(gameID, &value)) {
+				results.push_back({ section->name(), value });
+			}
+		}
+	};
+
+	IniFile compat;
+	// This loads from assets.
+	if (compat.LoadFromVFS(g_VFS, "compat.ini")) {
+		scan(compat);
+	}
+
+	IniFile compat2;
+	// This one is user-editable.
+	Path path = GetSysDirectory(DIRECTORY_SYSTEM) / "compat.ini";
+	if (compat2.Load(path)) {
+		scan(compat2);
+	}
+
+	return results;
+}
+
 void Compatibility::Clear() {
 	memset(&flags_, 0, sizeof(flags_));
 	memset(&vrCompat_, 0, sizeof(vrCompat_));

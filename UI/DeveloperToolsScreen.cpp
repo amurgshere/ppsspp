@@ -30,6 +30,7 @@
 #include "GPU/Common/PostShader.h"
 #include "Core/MIPS/MIPSTracer.h"
 #include "Core/ELF/ParamSFO.h"
+#include "Core/Compatibility.h"
 #include "Core/Config.h"
 #include "Core/HLE/HLE.h"
 #include "Core/Core.h"
@@ -165,7 +166,7 @@ void DeveloperToolsScreen::CreateGeneralTab(UI::LinearLayout *list) {
 	});
 	list->Add(new CheckBox(&g_Config.bEnableFileLogging, dev->T("Log to file")))->SetEnabledPtr(&g_Config.bEnableLogging);
 
-	static const char *overrideModes[] = {"Toggle", "Hold"};
+	static const char *overrideModes[] = {"Toggle", "Hold", "Disabled"};
 	list->Add(new PopupMultiChoice(&g_Config.iLogVerbosityOverrideLevel, dev->T("Log verbosity override mapping level"), logLevelList, 1, logLevelListCount, I18NCat::DEVELOPER, screenManager()))->SetEnabledPtr(&g_Config.bEnableLogging);
 	list->Add(new PopupMultiChoice(&g_Config.iLogVerbosityOverrideMode, dev->T("Log verbosity override mapping mode"), overrideModes, 0, ARRAY_SIZE(overrideModes), I18NCat::DEVELOPER, screenManager()))->SetEnabledPtr(&g_Config.bEnableLogging);
 
@@ -600,6 +601,9 @@ void DeveloperToolsScreen::CreateTabs() {
 	AddTab("HLE", dev->T("Disable HLE"), [this](UI::LinearLayout *parent) {
 		CreateHLETab(parent);
 	});
+	AddTab("Compatibility", dev->T("Compatibility"), [this](UI::LinearLayout *parent) {
+		CreateCompatibilityTab(parent);
+	});
 #if !PPSSPP_PLATFORM(ANDROID) && !PPSSPP_PLATFORM(IOS) && !PPSSPP_PLATFORM(SWITCH)
 	AddTab("MIPSTracer", dev->T("MIPSTracer"), [this](UI::LinearLayout *parent) {
 		CreateMIPSTracerTab(parent);
@@ -607,6 +611,29 @@ void DeveloperToolsScreen::CreateTabs() {
 #endif
 	// Reconsider whenever recreating views.
 	hasTexturesIni_ = HasIni::MAYBE;
+}
+
+void DeveloperToolsScreen::CreateCompatibilityTab(UI::LinearLayout *list) {
+	using namespace UI;
+	auto dev = GetI18NCategory(I18NCat::DEVELOPER);
+
+	if (!PSP_IsInited()) {
+		list->Add(new TextView(dev->T("No game is running, so there is no compat.ini data to display.")));
+		return;
+	}
+
+	std::string gameID = g_paramSFO.GetDiscID();
+	list->Add(new ItemHeader(StringFromFormat("%s (%s)", dev->T_cstr("Compat.ini settings"), gameID.c_str())));
+
+	auto settings = Compatibility::GetGameSettings(gameID);
+	if (settings.empty()) {
+		list->Add(new TextView(dev->T("No compat.ini entries found for this game.")));
+		return;
+	}
+
+	for (auto &pair : settings) {
+		list->Add(new InfoItem(pair.first, pair.second));
+	}
 }
 
 void DeveloperToolsScreen::onFinish(DialogResult result) {
