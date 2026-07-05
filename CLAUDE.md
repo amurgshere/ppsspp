@@ -14,6 +14,7 @@ Detailed, rarely-needed reference docs live in `Claude-References/`:
 | `m4xw-platform-breakages.md` | Offender table of Switch-only code m4xw added to shared files without platform guards |
 | `ge-frame-dump-technique.md` | Using `.ppdmp` GE frame dumps as ground truth when log-based rendering debugging stalls |
 | `debug-visualization-pattern.md` | Live visual debug toggles tied to existing controls; verifying hand-ports against upstream evidence |
+| `reading-game-ids-from-images.md` | Self-contained Python script to read the real `DISC_ID` from ISO/CSO files for compat.ini entries |
 
 ## Switch build (Docker)
 
