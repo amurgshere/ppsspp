@@ -72,6 +72,9 @@ private:
 	bool installed_ = false;
 	bool otherinstalled_ = false;
 #endif
+#if PPSSPP_PLATFORM(SWITCH)
+	bool forwarderInstalled_ = false;
+#endif
 
 	std::string memstickDisplay_;
 

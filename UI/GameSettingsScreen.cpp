@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <set>
+#include <thread>
 
 #include "Common/Net/Resolve.h"
 #include "Common/Audio/AudioBackend.h"
@@ -63,6 +64,11 @@
 #include "UI/Background.h"
 #include "UI/BackgroundAudio.h"
 #include "UI/MiscViews.h"
+
+#if PPSSPP_PLATFORM(SWITCH)
+#include "Switch/Forwarder/ForwarderInstaller.h"
+#include "Switch/Forwarder/ForwarderTypes.h"
+#endif
 
 #include "Common/File/FileUtil.h"
 #include "Common/File/AndroidContentURI.h"
@@ -1134,6 +1140,37 @@ void GameSettingsScreen::CreateToolsSettings(UI::ViewGroup *tools) {
 	tools->Add(new Choice(ri->T("Remote disc streaming")))->OnClick.Add([=](UI::EventParams &) {
 		screenManager()->push(new RemoteISOScreen(gamePath_));
 	});
+
+#if PPSSPP_PLATFORM(SWITCH)
+	// Only offer Add here, never an in-app Remove: removing a title's NCM
+	// application record from within a homebrew NRO (rather than from the
+	// Home Menu's own privileged context) was found to corrupt ns's
+	// bookkeeping on real hardware - full Atmosphere crash on the next "+"
+	// interaction, persisting across a reboot - even when using libnx's
+	// documented nsDeleteApplicationCompletely(). The Home Menu's own native
+	// "+" -> Manage Software -> uninstall removes the same tile cleanly, so
+	// that's the supported removal path; don't offer a second, unsafe one.
+	// Grey out (rather than hide) once installed - re-adding over the top
+	// was confirmed harmless, but there's nothing useful to offer at that
+	// point, and keeping the row visible-but-disabled is clearer UX than
+	// making it vanish.
+	if (System_GetPropertyBool(SYSPROP_CAN_CREATE_SWITCH_HOME_FORWARDER)) {
+		forwarderInstalled_ = Forwarder::IsForwarderInstalled(Forwarder::kGenericForwarderGameId);
+		Choice *btnForwarder = tools->Add(new Choice(sy->T("Add PPSSPP to Home Screen")));
+		btnForwarder->SetDisabledPtr(&forwarderInstalled_);
+		btnForwarder->OnClick.Add([this](UI::EventParams &e) {
+			auto sy = GetI18NCategory(I18NCat::SYSTEM);
+			System_CreateSwitchHomeForwarder(GetRequesterToken(), Path(), "PPSSPP", [this, sy](const char *responseString, int responseValue) {
+				if (responseValue) {
+					forwarderInstalled_ = true;
+					g_OSD.Show(OSDType::MESSAGE_SUCCESS, sy->T("Added PPSSPP to Home Screen"), 2.0f);
+				} else {
+					g_OSD.Show(OSDType::MESSAGE_ERROR, (responseString && responseString[0]) ? responseString : "Failed to add PPSSPP to Home Screen", 3.0f);
+				}
+			});
+		});
+	}
+#endif
 }
 
 void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {

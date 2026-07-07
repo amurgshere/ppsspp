@@ -83,6 +83,11 @@ enum class SystemRequestType {
 	CREATE_GAME_SHORTCUT,
 	SHOW_FILE_IN_FOLDER,
 
+	// Switch-only: "Add to Switch Home Screen" NRO forwarder installer (see
+	// Switch/Forwarder). Ignored on every other platform.
+	CREATE_SWITCH_HOME_FORWARDER,
+	REMOVE_SWITCH_HOME_FORWARDER,
+
 	// Commonly ignored, used when automated tests generate output.
 	SEND_DEBUG_OUTPUT,
 	// Note: height specified as param3, width based on param1.size() / param3.
@@ -167,6 +172,10 @@ enum SystemProperty {
 
 	SYSPROP_CAN_CREATE_SHORTCUT,
 	SYSPROP_CAN_SHOW_FILE,
+
+	// Switch-only: "Add to Switch Home Screen" NRO forwarder installer (see
+	// Switch/Forwarder). False/unhandled on every other platform.
+	SYSPROP_CAN_CREATE_SWITCH_HOME_FORWARDER,
 
 	SYSPROP_SUPPORTS_HTTPS,
 

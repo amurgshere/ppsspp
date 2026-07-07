@@ -54,6 +54,10 @@
 #include "UI/SavedataScreen.h"
 #include "UI/MiscViews.h"
 
+#if PPSSPP_PLATFORM(SWITCH)
+#include "Switch/Forwarder/ForwarderInstaller.h"
+#endif
+
 constexpr GameInfoFlags g_desiredFlags = GameInfoFlags::PARAM_SFO | GameInfoFlags::ICON | GameInfoFlags::PIC0 | GameInfoFlags::PIC1 | GameInfoFlags::UNCOMPRESSED_SIZE | GameInfoFlags::SIZE;
 
 GameScreen::GameScreen(const Path &gamePath, bool inGame) : UITwoPaneBaseDialogScreen(gamePath, TwoPaneFlags::SettingsToTheRight | TwoPaneFlags::CustomContextMenu), inGame_(inGame) {
@@ -340,6 +344,35 @@ void GameScreen::CreateSettingsViews(UI::ViewGroup *rightColumn) {
 	}
 
 	isHomebrew_ = info_ && info_->region == GameRegion::HOMEBREW;
+
+#if PPSSPP_PLATFORM(SWITCH)
+	// Only offer Add here, never an in-app Remove - see the matching comment
+	// in GameSettingsScreen.cpp for why in-app removal is unsafe on real
+	// hardware. Use the Home Menu's own "+" -> Manage Software -> uninstall
+	// to remove a forwarder tile instead. Grey out (rather than hide) once
+	// installed - re-adding over the top was confirmed harmless, but
+	// there's nothing useful to offer at that point, and keeping the row
+	// visible-but-disabled is clearer UX than making it vanish.
+	if ((knownFlags_ & GameInfoFlags::PARAM_SFO) && System_GetPropertyBool(SYSPROP_CAN_CREATE_SWITCH_HOME_FORWARDER)) {
+		forwarderInstalled_ = Forwarder::IsForwarderInstalled(gamePath_.ToString());
+		Choice *btnForwarder = rightColumnItems->Add(new Choice(ga->T("Add to Switch Home Screen")));
+		btnForwarder->SetDisabledPtr(&forwarderInstalled_);
+		btnForwarder->OnClick.Add([this](UI::EventParams &e) {
+			auto di = GetI18NCategory(I18NCat::DIALOG);
+			GameInfoFlags hasFlags;
+			std::shared_ptr<GameInfo> info = g_gameInfoCache->GetInfo(NULL, gamePath_, GameInfoFlags::PARAM_SFO, &hasFlags);
+			std::string title = (hasFlags & GameInfoFlags::PARAM_SFO) ? info->GetTitle() : gamePath_.GetFilename();
+			System_CreateSwitchHomeForwarder(GetRequesterToken(), gamePath_, title, [this, di](const char *responseString, int responseValue) {
+				if (responseValue) {
+					forwarderInstalled_ = true;
+					g_OSD.Show(OSDType::MESSAGE_SUCCESS, di->T("Added to Switch Home Screen"), 2.0f);
+				} else {
+					g_OSD.Show(OSDType::MESSAGE_ERROR, (responseString && responseString[0]) ? responseString : "Failed to add to Switch Home Screen", 3.0f);
+				}
+			});
+		});
+	}
+#endif
 
 	if (fileTypeSupportCRC && !isHomebrew_ && !Reporting::HasCRC(gamePath_) ) {
 		rightColumnItems->Add(new Choice(ga->T("Calculate CRC"), ImageID("I_CHECKMARK")))->OnClick.Add([this](UI::EventParams &) {

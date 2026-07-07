@@ -201,6 +201,14 @@ std::thread *graphicsLoadThread;
 // globals
 Path boot_filename;
 
+#if PPSSPP_PLATFORM(SWITCH)
+// Set instead of exiting when a Switch Home Screen forwarder's target ROM no
+// longer exists at its recorded path (moved/deleted since the forwarder was
+// created). Checked once after the ScreenManager is up so we can show the
+// user an informational popup instead of the app just vanishing.
+static std::string switchMissingRomPath;
+#endif
+
 // This is called before NativeInit so we do a little bit of initialization here.
 void NativeGetAppInfo(std::string *app_dir_name, std::string *app_nice_name, bool *landscape, std::string *version) {
 	*app_nice_name = "PPSSPP";
@@ -256,6 +264,16 @@ void PostLoadConfig() {
 #if !PPSSPP_PLATFORM(WINDOWS) || PPSSPP_PLATFORM(UWP)
 	CreateSysDirectories();
 #endif
+
+	// Otherwise, file logging left checked on in Dev Tools from a previous
+	// session stayed dark until a game happened to boot (Core/System.cpp's
+	// Init() is the only other place that applies this setting - see
+	// DeveloperToolsScreen::OnFileLoggingChanged for the same fix applied to
+	// toggling the checkbox live). Only turns it on, never off - never
+	// overrides an explicit command-line log file already enabled above.
+	if (g_Config.bEnableFileLogging && !(g_logManager.GetOutputsEnabled() & LogOutput::File)) {
+		g_logManager.EnableOutput(LogOutput::File);
+	}
 }
 
 static void CheckFailedGPUBackends() {
@@ -624,6 +642,19 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 						str = UriDecode(str.substr(7));
 						INFO_LOG(Log::IO, "Decoding '%s' to '%s'", argv[i], str.c_str());
 					}
+#if PPSSPP_PLATFORM(SWITCH)
+					// A Switch Home Screen forwarder's boot argument arrives
+					// "sdmc:"-prefixed (required by the loader chain to open
+					// the file), but a normal UI-driven boot never has this
+					// prefix - keeping it here made a forwarder-launched copy
+					// of a game look like a different file from its regular
+					// Recent-list entry (confirmed via a duplicate Recent
+					// entry on real hardware). Strip it so both boot paths
+					// converge on the same identity.
+					if (startsWith(str, "sdmc:")) {
+						str = str.substr(5);
+					}
+#endif
 
 					boot_filename = Path(str);
 					skipLogo = true;
@@ -634,6 +665,13 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 						fprintf(stderr, "File not found: %s\n", boot_filename.c_str());
 #if defined(_WIN32) || defined(__ANDROID__)
 						// Ignore and proceed.
+						boot_filename.clear();
+#elif PPSSPP_PLATFORM(SWITCH)
+						// Likely a per-game Home Screen forwarder whose ROM was
+						// moved/deleted since it was created. Don't exit -
+						// fall through to the main menu and tell the user
+						// where it went missing (see popup pushed below).
+						switchMissingRomPath = boot_filename.c_str();
 						boot_filename.clear();
 #else
 						// Bail.
@@ -724,6 +762,18 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 	} else {
 		g_screenManager->switchScreen(new LogoScreen(AfterLogoScreen::DEFAULT));
 	}
+
+#if PPSSPP_PLATFORM(SWITCH)
+	if (!switchMissingRomPath.empty()) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
+		auto sy = GetI18NCategory(I18NCat::SYSTEM);
+		std::string message = std::string(sy->T("ForwarderRomMissing", "This Home Screen icon's game file is missing:")) +
+			"\n\n" + switchMissingRomPath + "\n\n" +
+			std::string(sy->T("ForwarderRomMissingHelp", "Restore the file to this location, or remove the icon from the Home Menu using its + options."));
+		g_screenManager->push(new PromptScreen(Path(), message, di->T("OK"), ""));
+		switchMissingRomPath.clear();
+	}
+#endif
 
 	g_screenManager->SetBackgroundOverlayScreens(new BackgroundScreen(), new OSDOverlayScreen());
 

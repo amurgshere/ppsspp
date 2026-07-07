@@ -28,7 +28,7 @@ Generate NRO (make doesn't do this):
 ```bash
 docker exec ppsspp-build bash -c "nacptool --create 'PPSSPP' 'PPSSPP Team' '1.19.3' /app/build-switch/PPSSPP_GL.nacp && elf2nro /app/build-switch/PPSSPPSDL.elf /app/build-switch/PPSSPP_GL.nro --nacp=/app/build-switch/PPSSPP_GL.nacp --icon=/app/icons/icon-512.jpg"
 ```
-Copy `PPSSPP_GL.nro` to the Switch SD card as `switch/PPSSPP_GL/PPSSPP_GL.nro` (~30MB).
+Copy `PPSSPP_GL.nro` to the Switch SD card as `switch/ppsspp/PPSSPP_GL.nro` (~30MB).
 
 Container recreation / CMake reconfigure steps: see `Claude-References/docker-setup.md` — rarely needed.
 

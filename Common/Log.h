@@ -57,6 +57,7 @@ enum class Log {
 	GeDebugger,
 	UI,
 	IAP,
+	Forwarder,  // Switch NRO Home Screen forwarder creation (Switch::Forwarder namespace).
 
 	sceAudio,
 	sceCtrl,

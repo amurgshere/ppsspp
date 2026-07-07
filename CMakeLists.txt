@@ -1515,6 +1515,32 @@ else()
 			libretro/libretro-common_nx/glsym/glsym_gl.c
 			libretro/libretro-common_nx/glsym/rglgen.c
 		)
+		# "Add to Switch Home Screen" NRO forwarder installer. Self-contained,
+		# Switch-only module - see Switch/Forwarder for details. Never added
+		# to any other platform's source list.
+		set(nativeExtra ${nativeExtra}
+			Switch/Forwarder/ForwarderTypes.h
+			Switch/Forwarder/TitleIdAllocator.h
+			Switch/Forwarder/TitleIdAllocator.cpp
+			Switch/Forwarder/NacpBuilder.h
+			Switch/Forwarder/NacpBuilder.cpp
+			Switch/Forwarder/IconBuilder.h
+			Switch/Forwarder/IconBuilder.cpp
+			Switch/Forwarder/RomfsBuilder.h
+			Switch/Forwarder/RomfsBuilder.cpp
+			Switch/Forwarder/CnmtBuilder.h
+			Switch/Forwarder/CnmtBuilder.cpp
+			Switch/Forwarder/NcaBuilder.h
+			Switch/Forwarder/NcaBuilder.cpp
+			Switch/Forwarder/RsaSign.h
+			Switch/Forwarder/RsaSign.cpp
+			Switch/Forwarder/AesPrimitives.h
+			Switch/Forwarder/AesPrimitives.cpp
+			Switch/Forwarder/KeyProvider.h
+			Switch/Forwarder/KeyProvider.cpp
+			Switch/Forwarder/ForwarderInstaller.h
+			Switch/Forwarder/ForwarderInstaller.cpp
+		)
 	endif()
 	if(NOT USE_LIBNX)
 		set(nativeExtra ${nativeExtra}

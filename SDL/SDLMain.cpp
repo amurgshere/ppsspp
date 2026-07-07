@@ -21,8 +21,10 @@ SDLJoystick *joystick = NULL;
 
 #include <atomic>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <csignal>
+#include <memory>
 #include <thread>
 #include <locale>
 
@@ -77,6 +79,14 @@ SDLJoystick *joystick = NULL;
 
 #if PPSSPP_PLATFORM(MAC) || PPSSPP_PLATFORM(IOS)
 #include "UI/DarwinFileSystemServices.h"
+#endif
+
+#if PPSSPP_PLATFORM(SWITCH)
+#include "Switch/Forwarder/ForwarderInstaller.h"
+#include "Switch/Forwarder/ForwarderTypes.h"
+#include "Switch/Forwarder/embed/GenericIconData.h"
+#include "UI/GameInfoCache.h"
+#include "Common/Log.h"
 #endif
 
 #if PPSSPP_PLATFORM(MAC)
@@ -505,6 +515,92 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 	case SystemRequestType::SET_KEEP_SCREEN_BRIGHT:
 		INFO_LOG(Log::UI, "SET_KEEP_SCREEN_BRIGHT not implemented.");
 		return true;
+#if PPSSPP_PLATFORM(SWITCH)
+	case SystemRequestType::CREATE_SWITCH_HOME_FORWARDER:
+	{
+		// Runs synchronously on the calling thread (already the main/UI
+		// thread - System_MakeRequest is invoked directly from the UI's
+		// button-click handler, not from a worker thread). Other homebrew
+		// installers (Sphaira, DBI, Goldleaf) do the equivalent NCA
+		// construction + NCM registration work the same way, blocking their
+		// main thread with a spinner for a few seconds, rather than
+		// spawning a background thread for it. A hardware crash
+		// investigation traced repeated crashes in this code path to a too-
+		// small stack on a freshly spawned background thread - the main
+		// thread's stack (sized generously by the NPDM) doesn't have that
+		// problem, so there's no need for a background thread here at all.
+		Path gamePath(param1);
+		std::string title = param2;
+
+		DEBUG_LOG(Log::Forwarder, "CREATE_SWITCH_HOME_FORWARDER start, gamePath='%s' title='%s'",
+			gamePath.ToString().c_str(), title.c_str());
+		bool isGeneric = gamePath.ToString().empty();
+
+		Forwarder::InstallRequest req;
+		req.gameId = isGeneric ? Forwarder::kGenericForwarderGameId : gamePath.ToString();
+		req.displayName = title;
+		req.gameArgv = isGeneric ? "" : gamePath.ToString();
+		// Prefer wherever this running copy of PPSSPP was actually launched
+		// from over the hardcoded default, so the forwarder keeps working if
+		// the user moved PPSSPP_GL.nro to a different SD card location.
+		std::string runningNroPath = Forwarder::GetRunningNroPath();
+		if (!runningNroPath.empty()) {
+			req.nextNroPath = runningNroPath;
+		}
+
+		if (isGeneric) {
+			req.iconPng.assign(Forwarder::kGenericIconPngData, Forwarder::kGenericIconPngData + Forwarder::kGenericIconPngDataLen);
+		} else {
+			GameInfoFlags hasFlags{};
+			std::shared_ptr<GameInfo> info = g_gameInfoCache->GetInfo(nullptr, gamePath, GameInfoFlags::ICON | GameInfoFlags::PARAM_SFO, &hasFlags);
+			// Give the cache's own loader thread (a separate background
+			// thread) a chance to populate the icon. Blocking the main
+			// thread here for up to 5s is the same trade-off every other
+			// homebrew installer makes for this operation.
+			for (int i = 0; i < 100 && !info->icon.dataLoaded; i++) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			}
+			if (info->icon.data.empty()) {
+				g_requestManager.PostSystemSuccess(requestId, "Could not read this game's icon", 0);
+				return true;
+			}
+			req.iconPng.assign(info->icon.data.begin(), info->icon.data.end());
+			// PARAM.SFO has no publisher field, and PPSSPP's own authors
+			// didn't make this game, so credit the emulator rather than
+			// implying either party authored the game itself. Must match
+			// ForwarderAuthorForGameId's own choice for a non-generic gameId,
+			// since IsForwarderInstalled/UninstallForwarder re-derive the
+			// Title ID from that same helper rather than req.author directly.
+			req.author = Forwarder::kPerGameForwarderAuthor;
+			if (hasFlags & GameInfoFlags::PARAM_SFO) {
+				req.version = info->GetParamSFO().GetValueString("DISC_VERSION");
+			}
+		}
+
+		Forwarder::InstallResult result = Forwarder::BuildAndInstallForwarder(req);
+		if (result.success) {
+			g_requestManager.PostSystemSuccess(requestId, "", 1);
+		} else {
+			ERROR_LOG(Log::Forwarder, "BuildAndInstallForwarder failed: %s", result.errorMessage.c_str());
+			g_requestManager.PostSystemSuccess(requestId, result.errorMessage, 0);
+		}
+		return true;
+	}
+	case SystemRequestType::REMOVE_SWITCH_HOME_FORWARDER:
+	{
+		Path gamePath(param1);
+		bool isGeneric = gamePath.ToString().empty();
+		std::string gameId = isGeneric ? Forwarder::kGenericForwarderGameId : gamePath.ToString();
+		std::string err;
+		bool ok = Forwarder::UninstallForwarder(gameId, &err);
+		if (ok) {
+			g_requestManager.PostSystemSuccess(requestId, "", 1);
+		} else {
+			g_requestManager.PostSystemSuccess(requestId, err, 0);
+		}
+		return true;
+	}
+#endif  // PPSSPP_PLATFORM(SWITCH)
 	default:
 		INFO_LOG(Log::UI, "Unhandled system request %s", RequestTypeAsString(type));
 		return false;
@@ -737,6 +833,8 @@ bool System_GetPropertyBool(SystemProperty prop) {
 #if PPSSPP_PLATFORM(SWITCH)
 	case SYSPROP_HAS_TEXT_INPUT_DIALOG:
 		return __nx_applet_type == AppletType_Application || __nx_applet_type != AppletType_SystemApplication;
+	case SYSPROP_CAN_CREATE_SWITCH_HOME_FORWARDER:
+		return true;
 #endif
 	case SYSPROP_HAS_KEYBOARD:
 		return true;
@@ -1402,6 +1500,11 @@ static int printUsage(const char *progname)
 #undef main
 #endif
 int main(int argc, char *argv[]) {
+#if PPSSPP_PLATFORM(SWITCH)
+	if (argc > 0) {
+		Forwarder::SetRunningNroPath(argv[0]);
+	}
+#endif
 	for (int i = 1; i < argc; i++) {
 		if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h"))
 			return printUsage(argv[0]);
@@ -1418,6 +1521,13 @@ int main(int argc, char *argv[]) {
 #if PPSSPP_PLATFORM(SWITCH)
 	socketInitializeDefault();
 	nxlinkStdio();
+	// Needed by Switch/Forwarder (ncm/ns for NCM title registration, spl:mig
+	// for the AES primitives NcaBuilder needs) - these services are never
+	// touched anywhere else in this codebase, so without this the very first
+	// call into any of them dispatches on an uninitialized session handle.
+	ncmInitialize();
+	nsInitialize();
+	splCryptoInitialize();
 #else // PPSSPP_PLATFORM(SWITCH)
 	// Ignore sigpipe.
 	if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
@@ -1916,6 +2026,9 @@ int main(int argc, char *argv[]) {
 	fprintf(stderr, "Leaving main\n");
 
 #if PPSSPP_PLATFORM(SWITCH)
+	splCryptoExit();
+	nsExit();
+	ncmExit();
 	socketExit();
 #endif // PPSSPP_PLATFORM(SWITCH)
 

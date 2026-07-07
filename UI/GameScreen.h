@@ -67,6 +67,9 @@ private:
 
 	bool isHomebrew_ = false;
 	bool inGame_ = false;
+#if PPSSPP_PLATFORM(SWITCH)
+	bool forwarderInstalled_ = false;
+#endif
 
 	// Keep track of progressive loading of metadata.
 	GameInfoFlags knownFlags_ = GameInfoFlags::EMPTY;

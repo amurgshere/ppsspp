@@ -210,3 +210,13 @@ void System_RunCallbackInWndProc(void (*callback)(void *, void *), void *userdat
 // Non-inline to avoid including Path.h
 void System_CreateGameShortcut(const Path &path, std::string_view title);
 void System_ShowFileInFolder(const Path &path);
+
+// Switch-only: "Add to Switch Home Screen" NRO forwarder installer (see
+// Switch/Forwarder). Ignored (returns false) on every other platform.
+// An empty path means "generic PPSSPP forwarder, no game attached" - the
+// gameId used for install-state lookups is derived from path on the
+// implementation side (empty path -> the fixed generic sentinel).
+// responseValue in the callback is 1 on success, 0 on failure; responseString
+// carries an error message on failure (empty on success).
+void System_CreateSwitchHomeForwarder(RequesterToken token, const Path &path, std::string_view title, RequestCallback callback, RequestFailedCallback failedCallback = nullptr);
+void System_RemoveSwitchHomeForwarder(RequesterToken token, const Path &path, RequestCallback callback, RequestFailedCallback failedCallback = nullptr);

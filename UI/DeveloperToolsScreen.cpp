@@ -19,6 +19,7 @@
 
 #include "Common/UI/View.h"
 #include "Common/UI/ViewGroup.h"
+#include "Common/Log/LogManager.h"
 #include "Common/System/OSD.h"
 #include "Common/GPU/OpenGL/GLFeatures.h"
 #include "Common/Data/Text/Parsers.h"
@@ -164,7 +165,9 @@ void DeveloperToolsScreen::CreateGeneralTab(UI::LinearLayout *list) {
 	list->Add(new Choice(dev->T("Logging Channels")))->OnClick.Add([this](UI::EventParams &e) {
 		screenManager()->push(new LogConfigScreen());
 	});
-	list->Add(new CheckBox(&g_Config.bEnableFileLogging, dev->T("Log to file")))->SetEnabledPtr(&g_Config.bEnableLogging);
+	CheckBox *fileLogging = list->Add(new CheckBox(&g_Config.bEnableFileLogging, dev->T("Log to file")));
+	fileLogging->OnClick.Handle(this, &DeveloperToolsScreen::OnFileLoggingChanged);
+	fileLogging->SetEnabledPtr(&g_Config.bEnableLogging);
 
 	static const char *overrideModes[] = {"Toggle", "Hold", "Disabled"};
 	list->Add(new PopupMultiChoice(&g_Config.iLogVerbosityOverrideLevel, dev->T("Log verbosity override mapping level"), logLevelList, 1, logLevelListCount, I18NCat::DEVELOPER, screenManager()))->SetEnabledPtr(&g_Config.bEnableLogging);
@@ -644,6 +647,15 @@ void DeveloperToolsScreen::onFinish(DialogResult result) {
 
 void DeveloperToolsScreen::OnLoggingChanged(UI::EventParams &e) {
 	System_Notify(SystemNotification::TOGGLE_DEBUG_CONSOLE);
+}
+
+void DeveloperToolsScreen::OnFileLoggingChanged(UI::EventParams &e) {
+	// Core/System.cpp normally only applies bEnableFileLogging to the actual
+	// log file output when a game boots (Init()), so toggling this checkbox
+	// from the menu did nothing until a game was started. Apply it
+	// immediately here too, so logging (e.g. for the Switch NRO Forwarder
+	// category) works from menu screens with no game running.
+	g_logManager.EnableOutput(LogOutput::File, g_Config.bEnableFileLogging);
 }
 
 void DeveloperToolsScreen::OnOpenTexturesIniFile(UI::EventParams &e) {

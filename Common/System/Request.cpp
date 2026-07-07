@@ -39,6 +39,8 @@ const char *RequestTypeAsString(SystemRequestType type) {
 	case SystemRequestType::GRAPHICS_BACKEND_FAILED_ALERT: return "GRAPHICS_BACKEND_FAILED_ALERT";
 	case SystemRequestType::CREATE_GAME_SHORTCUT: return "CREATE_GAME_SHORTCUT";
 	case SystemRequestType::SHOW_FILE_IN_FOLDER: return "SHOW_FILE_IN_FOLDER";
+	case SystemRequestType::CREATE_SWITCH_HOME_FORWARDER: return "CREATE_SWITCH_HOME_FORWARDER";
+	case SystemRequestType::REMOVE_SWITCH_HOME_FORWARDER: return "REMOVE_SWITCH_HOME_FORWARDER";
 	case SystemRequestType::SEND_DEBUG_OUTPUT: return "SEND_DEBUG_OUTPUT";
 	case SystemRequestType::SEND_DEBUG_SCREENSHOT: return "SEND_DEBUG_SCREENSHOT";
 	case SystemRequestType::NOTIFY_UI_EVENT: return "NOTIFY_UI_EVENT";
@@ -163,6 +165,14 @@ void System_CreateGameShortcut(const Path &path, std::string_view title) {
 // Also acts as just show folder, if you pass in a folder.
 void System_ShowFileInFolder(const Path &path) {
 	g_requestManager.MakeSystemRequest(SystemRequestType::SHOW_FILE_IN_FOLDER, NO_REQUESTER_TOKEN, nullptr, nullptr, path.ToString(), "", 0);
+}
+
+void System_CreateSwitchHomeForwarder(RequesterToken token, const Path &path, std::string_view title, RequestCallback callback, RequestFailedCallback failedCallback) {
+	g_requestManager.MakeSystemRequest(SystemRequestType::CREATE_SWITCH_HOME_FORWARDER, token, callback, failedCallback, path.ToString(), title, 0);
+}
+
+void System_RemoveSwitchHomeForwarder(RequesterToken token, const Path &path, RequestCallback callback, RequestFailedCallback failedCallback) {
+	g_requestManager.MakeSystemRequest(SystemRequestType::REMOVE_SWITCH_HOME_FORWARDER, token, callback, failedCallback, path.ToString(), "", 0);
 }
 
 void System_BrowseForFolder(RequesterToken token, std::string_view title, const Path &initialPath, RequestCallback callback, RequestFailedCallback failedCallback) {
