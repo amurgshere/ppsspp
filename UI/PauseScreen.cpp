@@ -29,6 +29,7 @@
 #include "Common/Data/Text/I18n.h"
 #include "Common/Data/Text/Parsers.h"
 #include "Common/StringUtils.h"
+#include "Common/System/Display.h"
 #include "Common/System/OSD.h"
 #include "Common/System/Request.h"
 #include "Common/VR/PPSSPPVR.h"
@@ -186,13 +187,21 @@ void ScreenshotViewScreen::OnDeleteState(UI::EventParams &e) {
 	}));
 }
 
+// Minimum width (dp) of the save-slot area required to lay out full-height
+// Save State / Load State buttons to the right of the date, instead of the
+// compact stacked layout. Below this, small-screen touch targets would end
+// up cramped, so we fall back to the original layout.
+static constexpr float kSaveSlotWideLayoutMinWidth = 900.0f;
+
+// Explicit row height used for slots rendered with wide (full-height) Save/Load buttons.
+// A LinearLayout only stretches FILL_PARENT children to fill it when it itself has an
+// exact/bounded height to hand down - WRAP_CONTENT rows (the narrow layout) instead size
+// themselves from their tallest child, so buttons can't "fill" a height that depends on them.
+static constexpr float kSaveSlotWideRowHeight = 100.0f;
+
 class SaveSlotView : public UI::LinearLayout {
 public:
-	SaveSlotView(const Path &gamePath, int slot, UI::LayoutParams *layoutParams = nullptr);
-
-	void GetContentDimensions(const UIContext &dc, float &w, float &h) const override {
-		w = 500; h = 90;
-	}
+	SaveSlotView(const Path &gamePath, int slot, bool wideButtons, UI::LayoutParams *layoutParams = nullptr);
 
 	void Draw(UIContext &dc) override;
 
@@ -213,6 +222,12 @@ public:
 	UI::Event OnScreenshotClicked;
 
 private:
+	UI::LinearLayout *AddThumbnailAndNumber();
+	void AddNarrowDateAndButtons(UI::LinearLayout *lines, bool hasSave);
+	void AddWideDateAndButtons(bool hasSave);
+	UI::Button *AddSaveStateButton(UI::ViewGroup *parent, UI::LayoutParams *layoutParams);
+	UI::Button *AddLoadStateButton(UI::ViewGroup *parent, UI::LayoutParams *layoutParams);
+
 	void OnSaveState(UI::EventParams &e);
 	void OnLoadState(UI::EventParams &e);
 
@@ -222,44 +237,66 @@ private:
 	int slot_;
 	Path gamePath_;
 	Path screenshotFilename_;
+	bool wideButtons_;
 };
 
-SaveSlotView::SaveSlotView(const Path &gameFilename, int slot, UI::LayoutParams *layoutParams) : UI::LinearLayout(ORIENT_HORIZONTAL, layoutParams), slot_(slot), gamePath_(gameFilename) {
+SaveSlotView::SaveSlotView(const Path &gameFilename, int slot, bool wideButtons, UI::LayoutParams *layoutParams)
+	: UI::LinearLayout(ORIENT_HORIZONTAL, layoutParams), slot_(slot), gamePath_(gameFilename), wideButtons_(wideButtons) {
 	using namespace UI;
 
 	screenshotFilename_ = SaveState::GenerateSaveSlotFilename(gamePath_, slot, SaveState::SCREENSHOT_EXTENSION);
 
-	std::string number = StringFromFormat("%d", slot + 1);
+	const bool hasSave = SaveState::HasSaveInSlot(gamePath_, slot);
+
+	LinearLayout *lines = AddThumbnailAndNumber();
+
+	if (wideButtons_) {
+		AddWideDateAndButtons(hasSave);
+	} else {
+		AddNarrowDateAndButtons(lines, hasSave);
+	}
+}
+
+// Adds the slot number and screenshot thumbnail (common to both layouts), and
+// returns the "lines" column (thumbnail caption area) used by the narrow layout.
+UI::LinearLayout *SaveSlotView::AddThumbnailAndNumber() {
+	using namespace UI;
+
+	std::string number = StringFromFormat("%d", slot_ + 1);
 	Add(new Spacer(5));
 
 	Add(new TextView(number, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT, 0.0f, Gravity::G_VCENTER)))->SetBig(true);
 
 	AsyncImageFileView *fv = Add(new AsyncImageFileView(screenshotFilename_, IS_DEFAULT, new UI::LayoutParams(82 * 2, 47 * 2)));
-
-	auto pa = GetI18NCategory(I18NCat::PAUSE);
-
-	LinearLayout *lines = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT));
-	lines->SetSpacing(2.0f);
-
-	Add(lines);
-
-	LinearLayout *buttons = new LinearLayout(ORIENT_HORIZONTAL, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT));
-	buttons->SetSpacing(10.0f);
-
-	lines->Add(buttons);
-
-	saveStateButton_ = buttons->Add(new Button(pa->T("Save State"), new LinearLayoutParams(0.0, Gravity::G_VCENTER)));
-	saveStateButton_->OnClick.Handle(this, &SaveSlotView::OnSaveState);
-
 	fv->OnClick.Add([this](UI::EventParams &e) {
 		e.v = this;
 		OnScreenshotClicked.Trigger(e);
 	});
 
-	if (SaveState::HasSaveInSlot(gamePath_, slot)) {
+	if (!SaveState::HasSaveInSlot(gamePath_, slot_)) {
+		fv->SetFilename(Path());
+	}
+
+	LinearLayout *lines = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT));
+	lines->SetSpacing(2.0f);
+	Add(lines);
+	return lines;
+}
+
+// Original compact layout: Save/Load buttons stacked in a row above the date,
+// underneath the thumbnail. Used on narrow screens, or when there's no save yet.
+void SaveSlotView::AddNarrowDateAndButtons(UI::LinearLayout *lines, bool hasSave) {
+	using namespace UI;
+
+	LinearLayout *buttons = new LinearLayout(ORIENT_HORIZONTAL, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT));
+	buttons->SetSpacing(10.0f);
+	lines->Add(buttons);
+
+	AddSaveStateButton(buttons, new LinearLayoutParams(0.0, Gravity::G_VCENTER));
+
+	if (hasSave) {
 		if (!Achievements::HardcoreModeActive()) {
-			loadStateButton_ = buttons->Add(new Button(pa->T("Load State"), new LinearLayoutParams(0.0, Gravity::G_VCENTER)));
-			loadStateButton_->OnClick.Handle(this, &SaveSlotView::OnLoadState);
+			AddLoadStateButton(buttons, new LinearLayoutParams(0.0, Gravity::G_VCENTER));
 		}
 
 		std::string dateStr = SaveState::GetSlotDateAsString(gamePath_, slot_);
@@ -268,9 +305,42 @@ SaveSlotView::SaveSlotView(const Path &gameFilename, int slot, UI::LayoutParams 
 			dateView->SetSmall(true);
 			lines->Add(dateView)->SetShadow(true);
 		}
-	} else {
-		fv->SetFilename(Path());
 	}
+}
+
+// Wide layout: date shown inline, with Save State then Load State as large
+// full-height buttons pinned to the right of the row for easier touch targets.
+void SaveSlotView::AddWideDateAndButtons(bool hasSave) {
+	using namespace UI;
+
+	std::string dateStr = SaveState::GetSlotDateAsString(gamePath_, slot_);
+	if (!dateStr.empty()) {
+		TextView *dateView = Add(new TextView(dateStr, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT, 0.0f, Gravity::G_VCENTER)));
+		dateView->SetSmall(true);
+		dateView->SetShadow(true);
+	}
+
+	Add(new Spacer(new LinearLayoutParams(1.0f, WRAP_CONTENT)));
+
+	AddSaveStateButton(this, new LinearLayoutParams(150, FILL_PARENT, Margins(5, 0)));
+
+	if (hasSave && !Achievements::HardcoreModeActive()) {
+		AddLoadStateButton(this, new LinearLayoutParams(150, FILL_PARENT, Margins(5, 0)));
+	}
+}
+
+UI::Button *SaveSlotView::AddSaveStateButton(UI::ViewGroup *parent, UI::LayoutParams *layoutParams) {
+	auto pa = GetI18NCategory(I18NCat::PAUSE);
+	saveStateButton_ = parent->Add(new UI::Button(pa->T("Save State"), layoutParams));
+	saveStateButton_->OnClick.Handle(this, &SaveSlotView::OnSaveState);
+	return saveStateButton_;
+}
+
+UI::Button *SaveSlotView::AddLoadStateButton(UI::ViewGroup *parent, UI::LayoutParams *layoutParams) {
+	auto pa = GetI18NCategory(I18NCat::PAUSE);
+	loadStateButton_ = parent->Add(new UI::Button(pa->T("Load State"), layoutParams));
+	loadStateButton_->OnClick.Handle(this, &SaveSlotView::OnLoadState);
+	return loadStateButton_;
 }
 
 void SaveSlotView::Draw(UIContext &dc) {
@@ -299,6 +369,13 @@ void SaveSlotView::OnSaveState(UI::EventParams &e) {
 		e2.v = this;
 		OnStateSaved.Trigger(e2);
 	}
+}
+
+void GamePauseScreen::resized() {
+	UIBaseDialogScreen::resized();
+	// Window resize can change whether there's room for the wide Save/Load button
+	// layout (see HasRoomForWideSaveButtons) - rebuild so save slots switch layout live.
+	RecreateViews();
 }
 
 void GamePauseScreen::update() {
@@ -359,7 +436,23 @@ bool GamePauseScreen::key(const KeyInput &key) {
 	return false;
 }
 
-void GamePauseScreen::CreateSavestateControls(UI::LinearLayout *leftColumnItems) {
+// Estimates the width (dp) available to the save-slot list, to decide whether there's
+// room for full-height Save/Load buttons beside the date instead of the compact
+// stacked layout. Mirrors the column widths GamePauseScreen::CreateViews() lays out
+// (see the non-portrait branch: save-slot scroll gets whatever's left after the fixed-
+// width middle and button columns).
+static bool HasRoomForWideSaveButtons(bool portrait) {
+	if (portrait) {
+		// The save-slot list gets the full screen width in portrait mode.
+		return g_display.dp_xres >= kSaveSlotWideLayoutMinWidth;
+	}
+	const float middleColumnWidth = UI::ITEM_HEIGHT;
+	const float buttonColumnWidth = 320.0f;
+	const float availableWidth = g_display.dp_xres - middleColumnWidth - buttonColumnWidth;
+	return availableWidth >= kSaveSlotWideLayoutMinWidth;
+}
+
+void GamePauseScreen::CreateSavestateControls(UI::LinearLayout *leftColumnItems, bool wideButtons) {
 	auto pa = GetI18NCategory(I18NCat::PAUSE);
 
 	static const int NUM_SAVESLOTS = 5;
@@ -367,8 +460,15 @@ void GamePauseScreen::CreateSavestateControls(UI::LinearLayout *leftColumnItems)
 	using namespace UI;
 
 	leftColumnItems->SetSpacing(10.0);
+	// SaveSlotView's selection highlight draws slightly outside its own bounds (see
+	// SaveSlotView::Draw's GetBounds().Expand(3)). Without this, the very first slot has
+	// no gap above it, so that top sliver of highlight gets clipped by the scroll view's
+	// scissor rect - only the bottom edge (which has the inter-slot spacing to draw into)
+	// ends up visible when slot 1 is selected.
+	leftColumnItems->Add(new Spacer(3.0f));
+	float rowHeight = wideButtons ? kSaveSlotWideRowHeight : WRAP_CONTENT;
 	for (int i = 0; i < NUM_SAVESLOTS; i++) {
-		SaveSlotView *slot = leftColumnItems->Add(new SaveSlotView(gamePath_, i, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, Gravity::G_HCENTER, Margins(0,0,0,0))));
+		SaveSlotView *slot = leftColumnItems->Add(new SaveSlotView(gamePath_, i, wideButtons, new LinearLayoutParams(FILL_PARENT, rowHeight, Gravity::G_HCENTER, Margins(0,0,0,0))));
 		slot->OnStateLoaded.Handle(this, &GamePauseScreen::OnState);
 		slot->OnStateSaved.Handle(this, &GamePauseScreen::OnState);
 		slot->OnScreenshotClicked.Handle(this, &GamePauseScreen::OnScreenshotClicked);
@@ -513,7 +613,7 @@ void GamePauseScreen::CreateViews() {
 				System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://www.ppsspp.org/docs/troubleshooting/save-state-time-warps");
 			});
 		}
-		CreateSavestateControls(saveDataScrollItems);
+		CreateSavestateControls(saveDataScrollItems, HasRoomForWideSaveButtons(portrait));
 	} else {
 		// Let's show the active challenges.
 		std::set<uint32_t> ids = Achievements::GetActiveChallengeIDs();

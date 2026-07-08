@@ -40,10 +40,11 @@ public:
 protected:
 	void CreateViews() override;
 	void update() override;
+	void resized() override;
 	UI::Margins RootMargins() const override;
 
 private:
-	void CreateSavestateControls(UI::LinearLayout *viewGroup);
+	void CreateSavestateControls(UI::LinearLayout *viewGroup, bool wideButtons);
 
 	void OnGameSettings(UI::EventParams &e);
 	void OnExit(UI::EventParams &e);
