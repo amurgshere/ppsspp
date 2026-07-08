@@ -47,13 +47,19 @@ jobs:
           CXX: clang++
         run: ./b.sh --no-png --headless --unittest --release
 
+      - name: Package
+        run: |
+          mkdir ppsspp
+          cp build*/PPSSPPSDL ppsspp/ 2>/dev/null || true
+          cp build*/PPSSPPHeadless ppsspp/
+          cp build*/PPSSPPUnitTest ppsspp/
+          cp -r assets ppsspp/assets
+
       - name: Upload build
         uses: actions/upload-artifact@v5
         with:
           name: PPSSPP-Linux-${{ matrix.compiler }}-${{ github.sha }}
-          path: |
-            build*/PPSSPPHeadless
-            build*/PPSSPPUnitTest
+          path: ppsspp/
           retention-days: 30
 
   test:

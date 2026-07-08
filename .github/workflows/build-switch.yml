@@ -58,9 +58,15 @@ jobs:
             --nacp=build-switch/PPSSPP_GL.nacp \
             --icon=icons/icon-512.jpg
 
+      - name: Package
+        run: |
+          mkdir -p ppsspp/switch/ppsspp
+          cp build-switch/PPSSPP_GL.nro ppsspp/switch/ppsspp/
+          cp -r assets ppsspp/switch/ppsspp/assets
+
       - name: Upload NRO
         uses: actions/upload-artifact@v5
         with:
           name: PPSSPP_GL-${{ github.sha }}
-          path: build-switch/PPSSPP_GL.nro
+          path: ppsspp/
           retention-days: 30
