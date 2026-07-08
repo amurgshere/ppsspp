@@ -46,6 +46,7 @@ jobs:
         run: |
           mkdir ppsspp
           Copy-Item -Recurse "UWP\AppPackages\PPSSPP_UWP\*" ppsspp\
+          Copy-Item README.md ppsspp\
 
       - name: Upload MSIX
         uses: actions/upload-artifact@v5

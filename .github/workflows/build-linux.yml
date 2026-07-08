@@ -55,6 +55,7 @@ jobs:
           cp build*/PPSSPPUnitTest ppsspp/
           cp -r assets ppsspp/assets
           rm -rf ppsspp/assets/switch
+          cp README.md ppsspp/
 
       - name: Upload build
         uses: actions/upload-artifact@v5

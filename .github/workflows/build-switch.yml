@@ -63,6 +63,7 @@ jobs:
           mkdir -p ppsspp/switch/ppsspp
           cp build-switch/PPSSPP_GL.nro ppsspp/switch/ppsspp/
           cp -r assets ppsspp/switch/ppsspp/assets
+          cp README.md ppsspp/
 
       - name: Upload NRO
         uses: actions/upload-artifact@v5

@@ -141,6 +141,7 @@ jobs:
           elif ls android/build/*/apk/*/*/*.apk 2>/dev/null; then
             cp android/build/*/apk/*/*/*.apk ppsspp/
           fi
+          cp README.md ppsspp/
 
       - name: Upload build
         uses: actions/upload-artifact@v5

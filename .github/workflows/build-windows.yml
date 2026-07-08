@@ -61,6 +61,7 @@ jobs:
           Copy-Item Windows/${{ matrix.platform }}/Release/*.exe ppsspp/ -ErrorAction SilentlyContinue
           Copy-Item -Recurse assets ppsspp/assets
           Remove-Item -Recurse -Force ppsspp/assets/switch
+          Copy-Item README.md ppsspp/
 
       - name: Upload build
         uses: actions/upload-artifact@v5

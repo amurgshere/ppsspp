@@ -783,8 +783,8 @@ bool ImMemView::ParseSearchString(const char* query, MemorySearchType mode) {
 			}
 		}break;
 		case BYTE_SEQ:{
-			char* s = strdup(query);
-			size_t len = strlen(s);
+			std::string s(query);
+			size_t len = s.size();
 			for (size_t index = 0; index < len; ) {
 				if (isspace(s[index])) {
 					index++;
@@ -803,7 +803,6 @@ bool ImMemView::ParseSearchString(const char* query, MemorySearchType mode) {
 				}
 				memSearch_.data.push_back(value);
 			}
-			free(s);
 		}
 			break;
 		default:

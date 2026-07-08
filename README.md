@@ -30,7 +30,7 @@ This fork
 
 This is a **Nintendo Switch-focused fork** of PPSSPP, based on [m4xw's Switch port](https://github.com/m4xw/ppsspp) of upstream PPSSPP 1.19.3. It compiles for and supports all of PPSSPP's original platforms (Windows, Linux, macOS, Android, iOS, UWP), and any feature or fix that can reasonably be implemented across all platforms will be — but Switch is the primary target, and issues affecting Switch specifically get priority. Where a fix or feature only makes sense on one platform (e.g. Switch's Home Screen forwarder), it's implemented there without holding up work elsewhere.
 
-What's new in AM.1.20.5
+What's new in AM.1.20.5 (Under Development)
 ------------------------
 
 Changes since forking from m4xw's Switch port (based on upstream 1.19.3):

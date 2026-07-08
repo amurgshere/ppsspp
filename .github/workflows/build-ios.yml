@@ -51,9 +51,15 @@ jobs:
           export CCACHE_COMPILERCHECK=content
           ./b-ios.sh
 
+      - name: Package
+        run: |
+          mkdir ppsspp
+          cp build/PPSSPP-iOS-*.ipa ppsspp/
+          cp README.md ppsspp/
+
       - name: Upload IPA
         uses: actions/upload-artifact@v5
         with:
           name: PPSSPP-iOS-${{ github.sha }}
-          path: build/PPSSPP-iOS-*.ipa
+          path: ppsspp/
           retention-days: 30
