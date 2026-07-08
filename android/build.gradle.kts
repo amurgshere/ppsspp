@@ -20,6 +20,21 @@ dependencies {
 	implementation("androidx.documentfile:documentfile:1.1.0")
 }
 
+// Switch-only assets (assets/switch/) must not leak into the Android APK. AGP's
+// AndroidSourceDirectorySet.exclude()/.filter API has proven unreliable/version-dependent
+// across AGP releases (two failed attempts using it directly), so instead we pre-filter
+// the assets tree with a plain Gradle Sync task before Android ever sees it. The source dir
+// is set to this task's output *provider* (not a plain File) so Gradle auto-wires a task
+// dependency for every consumer (asset merging, lint, etc) instead of us having to manually
+// enumerate and dependsOn() each one - a previous attempt at the latter missed a lint task
+// and failed Gradle's task-dependency validation.
+val prepareFilteredAssets = tasks.register<Sync>("prepareFilteredAssets") {
+	from("../assets") {
+		exclude("switch/**")
+	}
+	into(layout.buildDirectory.dir("intermediates/filteredAssets"))
+}
+
 android {
 	flavorDimensions.add("variant")
 	namespace = "org.ppsspp.ppsspp"
@@ -106,8 +121,7 @@ android {
 			java.setSrcDirs(listOf("src"))
 			aidl.setSrcDirs(listOf("src"))
 			resources.setSrcDirs(listOf("src"))
-			assets.setSrcDirs(listOf("../assets"))
-			assets.exclude("switch/**")
+			assets.setSrcDirs(listOf(prepareFilteredAssets.map { it.destinationDir }))
 		}
 		create("normal") {
 			res.setSrcDirs(listOf("normal/res"))
