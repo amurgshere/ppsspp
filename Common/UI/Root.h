@@ -16,6 +16,11 @@ void EnableFocusMovement(bool enable);
 bool IsFocusMovementEnabled();
 View *GetFocusedView();
 void SetFocusedView(View *view, bool force = false);
+
+// Used so that the face-button press that first claims initial focus (when nothing
+// was focused yet) doesn't also immediately activate whatever it just focused.
+void RequestSuppressActivationClick();
+bool ConsumeSuppressActivationClick();
 void RemoveQueuedEventsByEvent(Event *e);
 void RemoveQueuedEventsByView(View * v);
 

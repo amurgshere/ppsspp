@@ -137,6 +137,10 @@ bool TabHolder::EnsureTab(int index) {
 	}
 }
 
+View *TabHolder::GetCurrentTabButton() const {
+	return tabStrip_ ? tabStrip_->GetChoiceView(currentTab_) : nullptr;
+}
+
 bool TabHolder::SetCurrentTab(int tab, bool skipTween) {
 	if (tab >= (int)tabs_.size()) {
 		// Ignore
@@ -144,6 +148,8 @@ bool TabHolder::SetCurrentTab(int tab, bool skipTween) {
 	}
 
 	bool created = false;
+
+	int oldTab = currentTab_;
 
 	if (tab != currentTab_) {
 		_dbg_assert_(tabs_[currentTab_]);  // we should always have a tab to switch *from*.
@@ -193,6 +199,11 @@ bool TabHolder::SetCurrentTab(int tab, bool skipTween) {
 		tabs_[tab]->SetVisibility(V_VISIBLE);
 
 		currentTab_ = tab;
+
+		EventParams e{};
+		e.a = oldTab;
+		e.b = tab;
+		OnTabChange.Trigger(e);
 	}
 	tabStrip_->SetSelection(tab, false);
 

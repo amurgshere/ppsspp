@@ -1238,6 +1238,7 @@ void MainScreen::CreateViews() {
 	tabHolder_ = new TabHolder(ORIENT_HORIZONTAL, 64, TabHolderFlags::Default, nullptr, nullptr, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, 1.0f));
 	ViewGroup *leftColumn = tabHolder_;
 	tabHolder_->SetTag("MainScreenGames");
+	tabHolder_->OnTabChange.Handle(this, &MainScreen::OnTabChanged);
 	gameBrowsers_.clear();
 
 	tabHolder_->SetClip(true);
@@ -1362,10 +1363,24 @@ void MainScreen::CreateViews() {
 	if (focusButton) {
 		root_->SetDefaultFocusView(focusButton);
 	} else if (tabHolder_->GetVisibility() != V_GONE) {
-		root_->SetDefaultFocusView(tabHolder_);
+		UpdateDefaultFocusView();
 	}
 
 	root_->SetTag("mainroot");
+}
+
+void MainScreen::UpdateDefaultFocusView() {
+	int curTab = tabHolder_->GetCurrentTab();
+	UI::ViewGroup *gameList = nullptr;
+	if (curTab >= 0 && curTab < (int)gameBrowsers_.size()) {
+		gameList = gameBrowsers_[curTab]->GetGameList();
+	}
+	if (gameList && gameList->GetNumSubviews() > 0) {
+		root_->SetDefaultFocusView(gameList);
+	} else {
+		UI::View *curTabButton = tabHolder_->GetCurrentTabButton();
+		root_->SetDefaultFocusView(curTabButton ? curTabButton : tabHolder_);
+	}
 }
 
 bool MainScreen::key(const KeyInput &touch) {
@@ -1412,6 +1427,14 @@ void MainScreen::update() {
 		for (auto browser : gameBrowsers_)
 			browser->ApplySearchFilter(searchFilter_);
 		searchChanged_ = false;
+	}
+
+	// GameBrowser::Refresh() (triggered by an async directory scan completing, a grid
+	// scale change, etc) tears down and rebuilds gameList_, which would otherwise leave
+	// the default focus view set by UpdateDefaultFocusView() pointing at a stale/destroyed
+	// view. Recompute every frame so it's always in sync with whatever's actually live.
+	if (tabHolder_ && tabHolder_->GetVisibility() != UI::V_GONE) {
+		UpdateDefaultFocusView();
 	}
 }
 
@@ -1574,6 +1597,36 @@ void MainScreen::OnExit(UI::EventParams &e) {
 	System_ExitApp();
 
 	UpdateUIState(UISTATE_EXIT);
+}
+
+void MainScreen::OnTabChanged(UI::EventParams &e) {
+	int oldTab = (int)e.a;
+	int newTab = (int)e.b;
+	if (oldTab == newTab || oldTab < 0 || oldTab >= (int)gameBrowsers_.size() || newTab < 0 || newTab >= (int)gameBrowsers_.size()) {
+		return;
+	}
+
+	// Keep the default focus view (used the first time a direction/face button is pressed,
+	// before anything has ever been focused) pointed at whichever tab is now current.
+	UpdateDefaultFocusView();
+
+	UI::View *focused = UI::GetFocusedView();
+	if (!focused) {
+		return;
+	}
+	UI::ViewGroup *oldList = gameBrowsers_[oldTab]->GetGameList();
+	if (!oldList || !oldList->ContainsSubview(focused)) {
+		// Focus wasn't on a game/folder icon before switching tabs - leave it alone.
+		return;
+	}
+
+	// A game icon was focused before switching - move focus onto whatever
+	// UpdateDefaultFocusView() just picked for the new tab (its list's first item,
+	// or the tab header itself if the new tab's list is empty).
+	UI::View *newFocus = root_->GetDefaultFocusView();
+	if (newFocus && newFocus->GetVisibility() == UI::V_VISIBLE) {
+		newFocus->SetFocus();
+	}
 }
 
 void MainScreen::dialogFinished(const Screen *dialog, DialogResult result) {

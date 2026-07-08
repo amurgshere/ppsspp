@@ -36,7 +36,11 @@ public:
 	// Returns true if the tab wasn't created before (but is now).
 	bool SetCurrentTab(int tab, bool skipTween = false);
 
+	// Fired whenever the current tab actually changes (click or L1/R1). e.a = old tab index, e.b = new tab index.
+	Event OnTabChange;
+
 	int GetCurrentTab() const { return currentTab_; }
+	View *GetCurrentTabButton() const;
 	std::string DescribeLog() const override { return "TabHolder: " + View::DescribeLog(); }
 
 	void PersistData(PersistStatus status, std::string anonId, PersistMap &storage) override;
@@ -77,6 +81,10 @@ public:
 
 	int GetSelection() const { return selected_; }
 	void SetSelection(int sel, bool triggerClick);
+
+	View *GetChoiceView(int index) const {
+		return index >= 0 && index < (int)choices_.size() ? choices_[index] : nullptr;
+	}
 
 	void EnableChoice(int choice, bool enabled);
 

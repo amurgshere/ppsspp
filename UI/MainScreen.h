@@ -65,6 +65,10 @@ public:
 		homePath_ = path;
 	}
 
+	UI::ViewGroup *GetGameList() const {
+		return gameList_;
+	}
+
 protected:
 	virtual bool DisplayTopBar();
 	virtual bool HasSpecialFiles(std::vector<Path> &filenames);
@@ -162,6 +166,8 @@ protected:
 	void OnExit(UI::EventParams &e);
 	void OnAllowStorage(UI::EventParams &e);
 	void OnFullScreenToggle(UI::EventParams &e);
+	void OnTabChanged(UI::EventParams &e);
+	void UpdateDefaultFocusView();
 
 	UI::TabHolder *tabHolder_ = nullptr;
 	UI::Button *fullscreenButton_ = nullptr;

@@ -16,6 +16,17 @@ extern bool focusForced;
 static View *focusedView;
 static bool focusMovementEnabled;
 bool focusForced;
+static bool suppressActivationClick;
+
+void RequestSuppressActivationClick() {
+	suppressActivationClick = true;
+}
+
+bool ConsumeSuppressActivationClick() {
+	bool value = suppressActivationClick;
+	suppressActivationClick = false;
+	return value;
+}
 
 static std::function<void(UISound)> soundCallback;
 
@@ -203,6 +214,12 @@ static KeyEventResult KeyEventToFocusMoves(const KeyInput &key) {
 			heldKeys.insert(hk);
 			focusMoves.push_back(key.keyCode);
 			retval = KeyEventResult::ACCEPT;
+		} else if (IsFaceButtonKey(key)) {
+			// No repeat handling needed for a single button press - just record it so
+			// UpdateViewHierarchy can claim initial focus on the same press that a D-pad
+			// move would, without launching/activating whatever gets focused (see
+			// Clickable::Key's use of ConsumeSuppressActivationClick).
+			focusMoves.push_back(key.keyCode);
 		}
 	}
 	if (key.flags & KEY_UP) {
@@ -393,6 +410,16 @@ DialogResult UpdateViewHierarchy(ViewGroup *root) {
 				root->SetFocus();
 			}
 			root->SubviewFocused(GetFocusedView());
+
+			// If a face button (not just a D-pad move) is what claimed focus just now,
+			// don't let that same press also activate whatever just got focused.
+			for (int code : focusMoves) {
+				KeyInput synthetic(DEVICE_ID_ANY, (InputKeyCode)code, KEY_DOWN);
+				if (IsFaceButtonKey(synthetic)) {
+					RequestSuppressActivationClick();
+					break;
+				}
+			}
 		} else {
 			for (size_t i = 0; i < focusMoves.size(); i++) {
 				switch (focusMoves[i]) {

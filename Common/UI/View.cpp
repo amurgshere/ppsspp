@@ -333,6 +333,11 @@ bool IsInfoKey(const KeyInput &key) {
 	}
 }
 
+bool IsFaceButtonKey(const KeyInput &key) {
+	return IsAcceptKey(key) || IsEscapeKey(key) || IsInfoKey(key) ||
+		key.keyCode == NKCODE_BUTTON_X || key.keyCode == NKCODE_BUTTON_4;
+}
+
 bool IsTabLeftKey(const KeyInput &key) {
 	if (tabLeftKeys.empty()) {
 		// This path is pretty much not used, tabLeftKeys should be set.
@@ -363,7 +368,11 @@ bool Clickable::Key(const KeyInput &key) {
 	bool ret = false;
 	if (key.flags & KEY_DOWN) {
 		if (IsAcceptKey(key)) {
-			down_ = true;
+			// If this press is what just claimed initial UI focus (nothing was focused a
+			// moment ago), only highlight it - don't also arm/trigger the click.
+			if (!ConsumeSuppressActivationClick()) {
+				down_ = true;
+			}
 			ret = true;
 		}
 	}

@@ -46,6 +46,7 @@ Changes since forking from m4xw's Switch port (based on upstream 1.19.3):
 - **[ALL] Audio fixes**: `setAudioStream` and multi-stream audio handling, MediaEngine AVIO callback bug with empty buffers.
 - **[ALL] Crash fixes**: non-Switch thread-detach regression.
 - **[ALL] Fixed file logging not working at all** — the log file path wasn't being stored until File output was already enabled, so enabling File logging produced no log file and nothing was ever written.
+- **[ALL] Main-menu game-list controller navigation improvements** — default focus now lands on the current tab's first game icon (not the tab strip) on the first D-pad or face-button press; face buttons (A/B/X/Y) can now claim initial focus too, without also activating the highlighted game; switching tabs with L1/R1 moves focus sensibly to the new tab's first item when a game icon was previously focused.
 - **[ALL] Controller/input**: both analog sticks shown in calibration view, PRESSURE/SIZE axes for right-stick diagonal mapping — lets you map digital buttons (e.g. ABXY) to the right stick with diagonal support, beneficial for games like Age of Zombies and Super Stardust Delta.
 - **[ALL] Full CI pipeline** covering Windows (x64/ARM64), Linux, macOS (universal), Android (incl. Quest VR), iOS, UWP, and Switch NRO builds, with unit + headless test jobs.
 - **[ALL]** Assorted build fixes to keep every platform compiling cleanly on this branch, and misc. compat.ini/credits/QoL fixes.

@@ -1187,6 +1187,9 @@ bool IsEscapeKey(const KeyInput &key);
 bool IsInfoKey(const KeyInput &key);
 bool IsTabLeftKey(const KeyInput &key);
 bool IsTabRightKey(const KeyInput &key);
+// True for any of the four face buttons (A/B/X/Y, Cross/Circle/Square/Triangle) -
+// used to also claim initial UI focus on first press, not just D-pad/analog stick moves.
+bool IsFaceButtonKey(const KeyInput &key);
 
 // TODO: Doesn't really belong here.
 void DrawIconShine(UIContext &dc, const Bounds &bounds, float shine, bool animated);
