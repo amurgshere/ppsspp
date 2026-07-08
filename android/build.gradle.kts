@@ -107,6 +107,7 @@ android {
 			aidl.setSrcDirs(listOf("src"))
 			resources.setSrcDirs(listOf("src"))
 			assets.setSrcDirs(listOf("../assets"))
+			assets.exclude("switch/**")
 		}
 		create("normal") {
 			res.setSrcDirs(listOf("normal/res"))

@@ -261,9 +261,9 @@ InstallResult BuildAndInstallForwarder(const InstallRequest &req) {
         // NCA icon section requires - so used as-is, not re-encoded. Loaded
         // from the normal asset path rather than baked into the binary.
         size_t jpegSize = 0;
-        uint8_t *jpegData = g_VFS.ReadFile("forwarder_generic_icon.jpg", &jpegSize);
+        uint8_t *jpegData = g_VFS.ReadFile("switch/forwarder_generic_icon.jpg", &jpegSize);
         if (!jpegData) {
-            result.errorMessage = "Missing forwarder_generic_icon.jpg in assets";
+            result.errorMessage = "Missing switch/forwarder_generic_icon.jpg in assets";
             return result;
         }
         iconJpeg.assign(jpegData, jpegData + jpegSize);

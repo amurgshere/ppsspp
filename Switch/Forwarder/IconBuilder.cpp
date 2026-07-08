@@ -84,9 +84,9 @@ std::vector<uint8_t> LoadBackgroundRgb() {
     std::vector<uint8_t> rgb(kIconSize * kIconSize * 3, 0);
 
     size_t jpegSize = 0;
-    uint8_t *jpegData = g_VFS.ReadFile("forwarder_background.jpg", &jpegSize);
+    uint8_t *jpegData = g_VFS.ReadFile("switch/forwarder_background.jpg", &jpegSize);
     if (!jpegData) {
-        ERROR_LOG(Log::Forwarder, "forwarder_background.jpg not found in assets, using black background");
+        ERROR_LOG(Log::Forwarder, "switch/forwarder_background.jpg not found in assets, using black background");
         return rgb;
     }
 
@@ -96,11 +96,11 @@ std::vector<uint8_t> LoadBackgroundRgb() {
     delete[] jpegData;
 
     if (!decoded) {
-        ERROR_LOG(Log::Forwarder, "failed to decode forwarder_background.jpg, using black background");
+        ERROR_LOG(Log::Forwarder, "failed to decode switch/forwarder_background.jpg, using black background");
         return rgb;
     }
     if (width != kIconSize || height != kIconSize) {
-        ERROR_LOG(Log::Forwarder, "forwarder_background.jpg is %dx%d, expected %dx%d, using black background", width, height, kIconSize, kIconSize);
+        ERROR_LOG(Log::Forwarder, "switch/forwarder_background.jpg is %dx%d, expected %dx%d, using black background", width, height, kIconSize, kIconSize);
         free(decoded);
         return rgb;
     }
