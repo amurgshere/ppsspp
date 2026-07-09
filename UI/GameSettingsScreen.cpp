@@ -1395,6 +1395,9 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 	PopupSliderChoice *exitConfirmation = systemSettings->Add(new PopupSliderChoice(&g_Config.iAskForExitConfirmationAfterSeconds, 0, 1200, 60, sy->T("Ask for exit confirmation after seconds"), screenManager(), "s"));
 	exitConfirmation->SetZeroLabel(sy->T("Off"));
 
+	static const char *pauseMenuExitOptionChoices[] = { "Exit to Menu", "Exit PPSSPP", "None" };
+	systemSettings->Add(new PopupMultiChoice(&g_Config.iPauseMenuExitOption, sy->T("Pause exit option available when loaded for specific ROM"), pauseMenuExitOptionChoices, 0, ARRAY_SIZE(pauseMenuExitOptionChoices), I18NCat::SYSTEM, screenManager()));
+
 	if (System_GetPropertyInt(SYSPROP_DEVICE_TYPE) == DEVICE_TYPE_MOBILE) {
 		auto co = GetI18NCategory(I18NCat::CONTROLS);
 

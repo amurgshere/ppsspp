@@ -186,6 +186,7 @@ public:
 
 	bool bPauseExitsEmulator;
 	bool bPauseMenuExitsEmulator;
+	bool bLoadedViaDirectLaunch;
 
 	bool bRunBehindPauseMenu;
 
@@ -225,6 +226,7 @@ public:
 	int iMemStickSizeGB;
 	bool bLoadPlugins;
 	int iAskForExitConfirmationAfterSeconds;
+	int iPauseMenuExitOption;
 	int iUIScaleFactor;  // In 8ths of powers of two.
 	int iDisableHLE;
 	int iForceEnableHLE;  // This is the opposite of DisableHLE but can force on HLE even when we've made it permanently off. Only used in tests, not hooked up to the ini file yet.

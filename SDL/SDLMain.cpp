@@ -207,15 +207,23 @@ static void InitSDLAudioDevice(const std::string &name = "") {
 			ERROR_LOG(Log::Audio, "Output audio channels: %d (requested: %d)", g_retFmt.channels, fmt.channels);
 			ERROR_LOG(Log::Audio, "Provided output format does not match requirement, turning audio off");
 			SDL_CloseAudioDevice(audioDev);
+			audioDev = 0;
+		} else {
+			SDL_PauseAudioDevice(audioDev, 0);
+			// Low-frequency event (init/reinit only, not hot-path) - logged at
+			// WARNING so it's visible without needing full INFO/NOTICE verbosity,
+			// to help diagnose intermittent no-sound-until-restart reports.
+			WARN_LOG(Log::Audio, "Audio device opened successfully: id=%d, freq=%d, samples=%d, channels=%d", (int)audioDev, g_retFmt.freq, g_retFmt.samples, g_retFmt.channels);
 		}
-		SDL_PauseAudioDevice(audioDev, 0);
 	}
 }
 
 static void StopSDLAudioDevice() {
 	if (audioDev > 0) {
+		WARN_LOG(Log::Audio, "Stopping audio device: id=%d", (int)audioDev);
 		SDL_PauseAudioDevice(audioDev, 1);
 		SDL_CloseAudioDevice(audioDev);
+		audioDev = 0;
 	}
 }
 
@@ -1388,19 +1396,19 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 		if (event.adevice.iscapture == 0) {
 			const char *name = SDL_GetAudioDeviceName(event.adevice.which, 0);
 			if (!name) {
-				INFO_LOG(Log::Audio, "Got bogus new audio device notification");
+				WARN_LOG(Log::Audio, "Got bogus new audio device notification");
 				break;
 			}
 			// Don't start auto switching for a couple of seconds, because some devices init on start.
 			bool doAutoSwitch = g_Config.bAutoAudioDevice;
 			if ((time_now_d() - g_audioStartTime) < 3.0) {
-				INFO_LOG(Log::Audio, "Ignoring new audio device: %s (current: %s)", name, g_Config.sAudioDevice.c_str());
+				WARN_LOG(Log::Audio, "Ignoring new audio device: %s (current: %s)", name, g_Config.sAudioDevice.c_str());
 				doAutoSwitch = false;
 			}
 			if (doAutoSwitch || g_Config.sAudioDevice == name) {
 				StopSDLAudioDevice();
 
-				INFO_LOG(Log::Audio, "!!! Auto-switching to new audio device: '%s'", name);
+				WARN_LOG(Log::Audio, "!!! Auto-switching to new audio device: '%s'", name);
 
 				InitSDLAudioDevice(name ? name : "");
 			}
@@ -1409,7 +1417,7 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 	case SDL_AUDIODEVICEREMOVED:
 		if (event.adevice.iscapture == 0 && event.adevice.which == audioDev) {
 			StopSDLAudioDevice();
-			INFO_LOG(Log::Audio, "Audio device removed, reselecting");
+			WARN_LOG(Log::Audio, "Audio device removed, reselecting");
 			InitSDLAudioDevice();
 		}
 		break;

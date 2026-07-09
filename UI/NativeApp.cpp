@@ -658,6 +658,10 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 
 					boot_filename = Path(str);
 					skipLogo = true;
+					// A boot filename arg means we were launched directly into a
+					// specific ROM (Switch forwarder, Windows CLI/file association,
+					// etc.), not via the normal game browser.
+					g_Config.bLoadedViaDirectLaunch = true;
 				}
 				if (okToLoad && okToCheck) {
 					std::unique_ptr<FileLoader> fileLoader(ConstructFileLoader(boot_filename));

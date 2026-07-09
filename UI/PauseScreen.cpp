@@ -706,30 +706,52 @@ void GamePauseScreen::CreateViews() {
 		rightColumnItems->Add(new Choice(rp->T("ReportButton", "Report Feedback")))->OnClick.Handle(this, &GamePauseScreen::OnReportFeedback);
 	}
 	rightColumnItems->Add(new Spacer(20.0));
-	Choice *exit;
+
+	// --pause-menu-exit always overrides the per-game setting when passed on
+	// the CLI. Otherwise, when we were launched directly into a specific ROM
+	// (forwarder/CLI/file-association launch), the per-game setting decides
+	// which exit behavior (or none at all) is offered. A normal launch into
+	// the game browser is unaffected by the setting.
+	enum { PMEO_EXIT_TO_MENU = 0, PMEO_EXIT_PPSSPP = 1, PMEO_NONE = 2 };
+	int effectiveExitOption = PMEO_EXIT_TO_MENU;
 	if (g_Config.bPauseMenuExitsEmulator) {
-		auto mm = GetI18NCategory(I18NCat::MAINMENU);
-		exit = new Choice(mm->T("Exit"), ImageID("I_EXIT"));
-	} else {
-		exit = new Choice(pa->T("Exit to menu"), ImageID("I_EXIT"));
+		effectiveExitOption = PMEO_EXIT_PPSSPP;
+	} else if (g_Config.bLoadedViaDirectLaunch) {
+		effectiveExitOption = g_Config.iPauseMenuExitOption;
+	}
+
+	Choice *exit = nullptr;
+	if (effectiveExitOption != PMEO_NONE) {
+		if (effectiveExitOption == PMEO_EXIT_PPSSPP) {
+			auto mm = GetI18NCategory(I18NCat::MAINMENU);
+			exit = new Choice(mm->T("Exit"), ImageID("I_EXIT"));
+		} else {
+			exit = new Choice(pa->T("Exit to menu"), ImageID("I_EXIT"));
+		}
 	}
 
 	if (portrait) {
-		UI::LinearLayout *exitRow = new UI::LinearLayout(ORIENT_HORIZONTAL, new UI::LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, Margins(0, 0, 0, 0)));
-		rightColumnItems->Add(exitRow);
-		exitRow->Add(exit);
-		exit->ReplaceLayoutParams(new UI::LinearLayoutParams(1.0f, Gravity::G_VCENTER));
 		Choice *continueChoice = new Choice(pa->T("Continue"), ImageID("I_PLAY"));
 		continueChoice->OnClick.Handle<UIScreen>(this, &UIScreen::OnBack);
 		root_->SetDefaultFocusView(continueChoice);
-		exitRow->Add(continueChoice);
-		continueChoice->ReplaceLayoutParams(new UI::LinearLayoutParams(1.0f, Gravity::G_VCENTER));
-	} else {
+		if (exit) {
+			UI::LinearLayout *exitRow = new UI::LinearLayout(ORIENT_HORIZONTAL, new UI::LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, Margins(0, 0, 0, 0)));
+			rightColumnItems->Add(exitRow);
+			exitRow->Add(exit);
+			exit->ReplaceLayoutParams(new UI::LinearLayoutParams(1.0f, Gravity::G_VCENTER));
+			exitRow->Add(continueChoice);
+			continueChoice->ReplaceLayoutParams(new UI::LinearLayoutParams(1.0f, Gravity::G_VCENTER));
+		} else {
+			rightColumnItems->Add(continueChoice);
+		}
+	} else if (exit) {
 		rightColumnItems->Add(exit);
 	}
 
-	exit->OnClick.Handle(this, &GamePauseScreen::OnExit);
-	exit->SetEnabled(!bootPending_);
+	if (exit) {
+		exit->OnClick.Handle(this, &GamePauseScreen::OnExit);
+		exit->SetEnabled(!bootPending_);
+	}
 
 	if (middleColumn) {
 		middleColumn->SetSpacing(portrait ? 8.0f : 20.0f);
@@ -874,6 +896,11 @@ std::string GetConfirmExitMessage() {
 }
 
 void GamePauseScreen::OnExit(UI::EventParams &e) {
+	// --pause-menu-exit always overrides the per-game setting; otherwise use
+	// the per-game setting only when we were launched directly into a ROM.
+	bool exitsEmulator = g_Config.bPauseMenuExitsEmulator ||
+		(g_Config.bLoadedViaDirectLaunch && g_Config.iPauseMenuExitOption == 1 /* Exit PPSSPP */);
+
 	std::string confirmExitMessage = GetConfirmExitMessage();
 
 	if (!confirmExitMessage.empty()) {
@@ -881,7 +908,7 @@ void GamePauseScreen::OnExit(UI::EventParams &e) {
 		std::string_view title = di->T("Are you sure you want to exit?");
 		screenManager()->push(new UI::MessagePopupScreen(title, confirmExitMessage, di->T("Exit"), di->T("Cancel"), [=](bool result) {
 			if (result) {
-				if (g_Config.bPauseMenuExitsEmulator) {
+				if (exitsEmulator) {
 					System_ExitApp();
 				} else {
 					finishNextFrameResult_ = DR_OK;  // exit game
@@ -890,7 +917,7 @@ void GamePauseScreen::OnExit(UI::EventParams &e) {
 			}
 		}));
 	} else {
-		if (g_Config.bPauseMenuExitsEmulator) {
+		if (exitsEmulator) {
 			System_ExitApp();
 		} else {
 			TriggerFinish(DR_OK);
