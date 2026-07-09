@@ -174,7 +174,13 @@ void ViewGroup::Draw(UIContext &dc) {
 		dc.PushScissor(bounds_);
 	}
 
-	dc.FillRect(bg_, bounds_);
+	// If bg_ is a plain solid color (not already customized to an image/gradient),
+	// round its corners to match the rest of the UI.
+	if (bg_.type == DRAW_SOLID_COLOR) {
+		dc.FillRect(UI::Drawable(DRAW_4GRID, ImageID("I_ROUNDED_RECT"), bg_.color), bounds_);
+	} else {
+		dc.FillRect(bg_, bounds_);
+	}
 	for (View *view : views_) {
 		if (view->GetVisibility() == V_VISIBLE) {
 			// Check if bounds are in current scissor rectangle.

@@ -256,7 +256,11 @@ void ScrollView::Draw(UIContext &dc) {
 	}
 
 	dc.PushScissor(bounds_);
-	dc.FillRect(bg_, bounds_);
+	if (bg_.type == DRAW_SOLID_COLOR) {
+		dc.FillRect(UI::Drawable(DRAW_4GRID, ImageID("I_ROUNDED_RECT"), bg_.color), bounds_);
+	} else {
+		dc.FillRect(bg_, bounds_);
+	}
 
 	// For debugging layout issues, this can be useful.
 	// dc.FillRect(Drawable(0x60FF00FF), bounds_);

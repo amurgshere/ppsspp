@@ -166,7 +166,7 @@ static void LoadThemeInfo(const std::vector<Path> &directories) {
 
 static UI::Style MakeStyle(uint32_t fg, uint32_t bg) {
 	UI::Style s;
-	s.background = UI::Drawable(bg);
+	s.background = UI::Drawable(UI::DRAW_4GRID, ImageID("I_ROUNDED_RECT"), bg);
 	s.fgColor = fg;
 	return s;
 }

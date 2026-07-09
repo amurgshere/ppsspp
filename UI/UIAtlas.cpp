@@ -44,6 +44,7 @@ struct ImageMeta {
 // I've added shadows to most of those for now. See customKeyImages in GamepadEmu.h.
 static const ImageMeta imageIDs[] = {
 	{"I_SOLIDWHITE", false},
+	{"I_ROUNDED_RECT", false},
 	{"I_CROSS", true},
 	{"I_CIRCLE", true},
 	{"I_SQUARE", true},
