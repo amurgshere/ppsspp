@@ -42,6 +42,7 @@ Changes since forking from m4xw's Switch port (based on upstream 1.19.3):
 - **[ALL] Sprite border fix (hand-ported)** — fixes GTA Vice City Stories/Liberty City Stories edge bleed and the Ridge Racer menu box artifact, with an added compat flag and RECT-primitive support.
 - **[ALL] FMV playback fixes** — fixed premature FMV cutoff (Ridge Racer 2 intro and others), MPEG ringbuffer lockup at end of video, and truncated-Access-Unit frame handling.
 - **[SWITCH] Fixed on-screen keyboard not showing the field's current text** — tapping a text field (e.g. the auto-save/auto-load seconds sliders) opened the Switch keyboard blank instead of prefilled, so new input appended rather than replaced. Now routes through the same modal input mechanism used elsewhere, which prefills correctly.
+- **[ALL] Darker backdrop behind game info screen artwork** — the game info screen's PIC0/PIC1/icon image now has a subtle dark backdrop behind it, so its shape is visible even where the image itself is transparent, without affecting the existing fade-in effect.
 - **[ALL] Mappable log verbosity override control**, plus a "Disabled" verbosity mode and a Compatibility dev tools tab.
 - **[ALL] GPU/rendering correctness fixes**: accurate `vdot` instruction, corrected depth clear translation, VFPU dot rounding overflow fix, `fsMinmaxDiscard` fallback for PSP min/max Z depth clipping.
 - **[ALL] Audio fixes**: `setAudioStream` and multi-stream audio handling, MediaEngine AVIO callback bug with empty buffers.
