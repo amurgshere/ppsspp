@@ -11,17 +11,17 @@ Official website: https://www.ppsspp.org/
 
 Discord: https://discord.gg/5NJB6dD
 
+**Download:** to get fresh builds of this fork (including the Switch NRO), see [this fork's Actions tab](https://github.com/amurgshere/ppsspp/actions) — pick a recent successful workflow run and download the artifact for your platform. For official upstream dev builds (Android/Windows/Mac only, no Switch), see [the /devbuilds page](https://www.ppsspp.org/devbuilds).
+
 No BIOS file required to play, PPSSPP is an "HLE" emulator.  Default settings balance good compatibility and speed.
 
-To contribute, see [the development page](https://www.ppsspp.org/docs/development/).  Help testing, investigating, or fixing is always welcome.  See [the list of issues](https://github.com/hrydgard/ppsspp/issues).
+To contribute, see [the development page](https://www.ppsspp.org/docs/development/).  Help testing, investigating, or fixing is always welcome. For issues specific to this Switch-focused fork, see [this fork's issues](https://github.com/amurgshere/ppsspp/issues); for issues in upstream PPSSPP itself, see [the upstream list of issues](https://github.com/hrydgard/ppsspp/issues).
 
-For the latest source code, see [our GitHub page](https://github.com/hrydgard/ppsspp).
+For the latest source code, see [this fork's GitHub page](https://github.com/amurgshere/ppsspp); for upstream PPSSPP, see [hrydgard/ppsspp](https://github.com/hrydgard/ppsspp).
 
 For documentation of all kinds (usage, reference, development), see the [documentation on the main website](https://www.ppsspp.org/docs)
 
-For build instructions and other development tutorials, see [the wiki](https://github.com/hrydgard/ppsspp/wiki).
-
-To download fresh development builds for Android, Windows and Mac, [go to the /devbuilds page](https://www.ppsspp.org/devbuilds)
+For build instructions and other development tutorials for upstream PPSSPP, see [the wiki](https://github.com/hrydgard/ppsspp/wiki). This fork's build process (Docker/devkitPro for Switch) differs and is documented in `CLAUDE.md`/`Claude-References/` in this repo instead.
 
 For game compatibility, see [community compatibility feedback](https://report.ppsspp.org/games).
 
