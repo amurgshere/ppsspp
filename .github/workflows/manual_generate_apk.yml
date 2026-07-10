@@ -40,6 +40,10 @@ jobs:
           git remote add upstream https://github.com/hrydgard/ppsspp.git # fetching from official repo as a fallback
           git fetch --deepen=15000 --no-recurse-submodules --tags --force upstream || exit 0
         
+      - name: Compute version
+        id: version
+        run: echo "tag=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
+
       - name: Setup JDK
         uses: actions/setup-java@v5
         with:
@@ -77,5 +81,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
-          name: android-${{ github.event.inputs.buildVariant }} build
+          name: PPSSPP-Android-${{ github.event.inputs.buildVariant }}-${{ steps.version.outputs.tag }}
           path: ppsspp/

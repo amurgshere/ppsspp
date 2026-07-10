@@ -24,6 +24,10 @@ jobs:
           git remote add hrydgard https://github.com/hrydgard/ppsspp.git
           git fetch hrydgard --tags
 
+      - name: Compute version
+        id: version
+        run: echo "tag=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
+
       - name: Install dependencies
         run: |
           apt-get update && apt-get install -y \
@@ -68,6 +72,6 @@ jobs:
       - name: Upload NRO
         uses: actions/upload-artifact@v5
         with:
-          name: PPSSPP_GL-${{ github.sha }}
+          name: PPSSPP_GL-Switch-${{ steps.version.outputs.tag }}
           path: ppsspp/
           retention-days: 30

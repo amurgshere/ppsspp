@@ -16,6 +16,8 @@ jobs:
             artifact: PPSSPP-Windows-x64
           - platform: ARM64
             artifact: PPSSPP-Windows-ARM64
+    outputs:
+      version: ${{ steps.version.outputs.tag }}
 
     steps:
       - uses: actions/checkout@v5
@@ -36,10 +38,15 @@ jobs:
             git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
           fi
 
+      - name: Compute version
+        id: version
+        shell: bash
+        run: echo "tag=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
+
       - name: Generate git-version.cpp
         shell: pwsh
         run: |
-          $GIT_VERSION = git describe --always
+          $GIT_VERSION = git describe --always --tags
           Write-Host "Git version: $GIT_VERSION"
           "const char *PPSSPP_GIT_VERSION = `"$GIT_VERSION`";" | Out-File -Encoding utf8 git-version.cpp
           "#define PPSSPP_GIT_VERSION_NO_UPDATE 1" | Out-File -Encoding utf8 -Append git-version.cpp
@@ -66,7 +73,7 @@ jobs:
       - name: Upload build
         uses: actions/upload-artifact@v5
         with:
-          name: ${{ matrix.artifact }}-${{ github.sha }}
+          name: ${{ matrix.artifact }}-${{ steps.version.outputs.tag }}
           path: ppsspp/
           retention-days: 30
 
@@ -87,7 +94,7 @@ jobs:
       - name: Download build
         uses: actions/download-artifact@v4
         with:
-          name: PPSSPP-Windows-x64-${{ github.sha }}
+          name: PPSSPP-Windows-x64-${{ needs.build.outputs.version }}
           path: ppsspp/
 
       - name: Unit tests

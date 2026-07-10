@@ -52,6 +52,10 @@ jobs:
             git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
           fi
 
+      - name: Compute version
+        id: version
+        run: echo "tag=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
+
       - name: Setup JDK
         uses: actions/setup-java@v5
         with:
@@ -146,6 +150,6 @@ jobs:
       - name: Upload build
         uses: actions/upload-artifact@v5
         with:
-          name: ${{ matrix.artifact }}-${{ github.sha }}
+          name: ${{ matrix.artifact }}-${{ steps.version.outputs.tag }}
           path: ppsspp/
           retention-days: 30

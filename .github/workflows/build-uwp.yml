@@ -27,6 +27,11 @@ jobs:
             git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
           fi
 
+      - name: Compute version
+        id: version
+        shell: bash
+        run: echo "tag=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
+
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
 
@@ -51,6 +56,6 @@ jobs:
       - name: Upload MSIX
         uses: actions/upload-artifact@v5
         with:
-          name: PPSSPP-UWP-x64-${{ github.sha }}
+          name: PPSSPP-UWP-x64-${{ steps.version.outputs.tag }}
           path: ppsspp/
           retention-days: 30

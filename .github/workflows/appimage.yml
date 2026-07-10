@@ -148,7 +148,7 @@ jobs:
         run: |
           echo "Building..."
           uname -m
-          echo "tag=$(git describe --always)" >> $GITHUB_OUTPUT
+          echo "tag=$(git describe --always --tags)" >> $GITHUB_OUTPUT
 
           # Export ccache env var(s)
           export PATH="/usr/lib/ccache:/usr/local/opt/ccache/libexec:$PATH"
@@ -268,7 +268,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v5
         with:
-          name: linux-${{ steps.version.outputs.tag }}-${{ matrix.id }} AppImage
+          name: PPSSPP-Linux-${{ matrix.id }}-${{ steps.version.outputs.tag }}-AppImage
           path: artifacts/
 
       - name: Upload release

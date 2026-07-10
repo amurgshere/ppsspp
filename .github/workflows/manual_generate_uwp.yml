@@ -54,6 +54,11 @@ jobs:
           git remote add upstream https://github.com/hrydgard/ppsspp.git # fetching from official repo as a fallback
           git fetch --deepen=15000 --no-recurse-submodules --tags --force upstream || exit 0
 
+      - name: Compute version
+        id: version
+        shell: bash
+        run: echo "tag=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
+
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2.0.0
 
@@ -113,5 +118,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v5
         with:
-          name: UWP-${{ github.event.inputs.buildConfiguration }}-${{ github.event.inputs.buildPlatform }} build
+          name: PPSSPP-UWP-${{ github.event.inputs.buildConfiguration }}-${{ github.event.inputs.buildPlatform }}-${{ steps.version.outputs.tag }}
           path: ppsspp/

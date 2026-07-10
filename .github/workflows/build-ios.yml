@@ -27,7 +27,7 @@ jobs:
           fi
 
       - name: Set version
-        run: echo "GIT_VERSION=$(git describe --always)" >> $GITHUB_ENV
+        run: echo "GIT_VERSION=$(git describe --always --tags)" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: brew install ldid dpkg
@@ -60,6 +60,6 @@ jobs:
       - name: Upload IPA
         uses: actions/upload-artifact@v5
         with:
-          name: PPSSPP-iOS-${{ github.sha }}
+          name: PPSSPP-iOS-${{ env.GIT_VERSION }}
           path: ppsspp/
           retention-days: 30

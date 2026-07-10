@@ -27,6 +27,8 @@ env:
 
 jobs:
   build-windows:
+    outputs:
+      version: ${{ steps.gitversion.outputs.tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -59,8 +61,10 @@ jobs:
 
     - name: Create git-version.cpp for Windows # Not sure why the one at git-version-gen.cmd couldn't get the version properly.
       #if: github.ref_type == 'tag'
+      id: gitversion
       run: |
-        $GIT_VERSION=git describe --always
+        $GIT_VERSION=git describe --always --tags
+        echo "tag=$GIT_VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
         echo "Num of Valid Tags = ${{ steps.valid-tags.outputs.count }}"
         echo "Test GitVer = ${{ github.ref_name }} / $GIT_VERSION / ${GITHUB_REF_NAME}"
         echo "const char *PPSSPP_GIT_VERSION = `"$GIT_VERSION`";" > git-version.cpp
@@ -99,7 +103,7 @@ jobs:
     - name: Upload build
       uses: actions/upload-artifact@v5
       with:
-        name: Windows ${{ matrix.platform }} build
+        name: PPSSPP-Windows-${{ matrix.platform }}-${{ steps.gitversion.outputs.tag }}
         path: ppsspp/
 
     - name: Create release
@@ -149,7 +153,7 @@ jobs:
     - name: Download build
       uses: actions/download-artifact@v6
       with:
-        name: Windows x64 build
+        name: PPSSPP-Windows-x64-${{ needs.build-windows.outputs.version }}
         path: ppsspp/
 
     - name: Execute unit tests
@@ -162,6 +166,8 @@ jobs:
 
   build:
     name: build (${{ matrix.id }})
+    outputs:
+      version: ${{ steps.version.outputs.tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -258,6 +264,10 @@ jobs:
       # This is required for git describe --always to work for git-version.cpp.
       run: |
         git fetch --deepen=15000 --no-recurse-submodules --tags || exit 0
+
+    - name: Compute version
+      id: version
+      run: echo "tag=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
 
     - name: Install Qt
       uses: jurplel/install-qt-action@d325aaf2a8baeeda41ad0b5d39f84a6af9bcf005 # v4.3.0
@@ -371,14 +381,14 @@ jobs:
       uses: actions/upload-artifact@v5
       if: matrix.extra == 'test'
       with:
-        name: ${{ matrix.os }} build
+        name: PPSSPP-${{ matrix.os }}-${{ steps.version.outputs.tag }}
         path: ppsspp/
 
     - name: Upload iOS build
       uses: actions/upload-artifact@v5
       if: matrix.id == 'ios'
       with:
-        name: ${{ matrix.id }} build
+        name: PPSSPP-${{ matrix.id }}-${{ steps.version.outputs.tag }}
         path: ppsspp/
 
     - name: Create macOS release
@@ -435,7 +445,7 @@ jobs:
     - name: Download build
       uses: actions/download-artifact@v6
       with:
-        name: ${{ matrix.os }} build
+        name: PPSSPP-${{ matrix.os }}-${{ needs.build.outputs.version }}
         path: ppsspp/
 
     # Not sure where it's ending up, but test.py can't find it...

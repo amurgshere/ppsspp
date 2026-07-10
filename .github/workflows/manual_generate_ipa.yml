@@ -28,7 +28,7 @@ jobs:
 
       - name: Set Env Var(s)
         run: |
-          echo "GIT_VERSION=$(git describe --always)" >> $GITHUB_ENV
+          echo "GIT_VERSION=$(git describe --always --tags)" >> $GITHUB_ENV
 
       - name: Install iOS dependencies
         run: |
@@ -83,12 +83,12 @@ jobs:
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v5
         with:
-          name: iOS-IPA build
+          name: PPSSPP-iOS-IPA-${{ env.GIT_VERSION }}
           path: ppsspp/*.ipa
 
       - name: Upload DEB artifact
         uses: actions/upload-artifact@v5
         with:
-          name: iOS-DEB build
+          name: PPSSPP-iOS-DEB-${{ env.GIT_VERSION }}
           path: ppsspp/*.deb
       

@@ -12,6 +12,8 @@ jobs:
     strategy:
       matrix:
         compiler: [gcc, clang]
+    outputs:
+      version: ${{ steps.version.outputs.tag }}
 
     steps:
       - uses: actions/checkout@v5
@@ -27,6 +29,10 @@ jobs:
             git remote add hrydgard https://github.com/hrydgard/ppsspp.git
             git fetch --deepen=15000 --no-recurse-submodules --tags --force hrydgard || true
           fi
+
+      - name: Compute version
+        id: version
+        run: echo "tag=$(git describe --always --tags)" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: |
@@ -60,7 +66,7 @@ jobs:
       - name: Upload build
         uses: actions/upload-artifact@v5
         with:
-          name: PPSSPP-Linux-${{ matrix.compiler }}-${{ github.sha }}
+          name: PPSSPP-Linux-${{ matrix.compiler }}-${{ steps.version.outputs.tag }}
           path: ppsspp/
           retention-days: 30
 
@@ -89,7 +95,7 @@ jobs:
       - name: Download build
         uses: actions/download-artifact@v4
         with:
-          name: PPSSPP-Linux-${{ matrix.compiler }}-${{ github.sha }}
+          name: PPSSPP-Linux-${{ matrix.compiler }}-${{ needs.build.outputs.version }}
           path: ppsspp/
 
       - name: Fix permissions
