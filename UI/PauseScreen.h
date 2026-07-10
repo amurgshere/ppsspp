@@ -60,6 +60,7 @@ private:
 	void OnDeleteConfig(UI::EventParams &e);
 
 	void OnState(UI::EventParams &e);
+	void OnRequestClearState(UI::EventParams &e);
 	void ShowContextMenu(UI::View *menuButton, bool portrait);
 
 	// hack

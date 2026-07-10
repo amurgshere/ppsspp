@@ -219,6 +219,7 @@ public:
 
 	UI::Event OnStateLoaded;
 	UI::Event OnStateSaved;
+	UI::Event OnRequestClear;
 	UI::Event OnScreenshotClicked;
 
 private:
@@ -227,12 +228,15 @@ private:
 	void AddWideDateAndButtons(bool hasSave);
 	UI::Button *AddSaveStateButton(UI::ViewGroup *parent, UI::LayoutParams *layoutParams);
 	UI::Button *AddLoadStateButton(UI::ViewGroup *parent, UI::LayoutParams *layoutParams);
+	UI::Button *AddClearStateButton(UI::ViewGroup *parent, UI::LayoutParams *layoutParams);
 
 	void OnSaveState(UI::EventParams &e);
 	void OnLoadState(UI::EventParams &e);
+	void OnClearState(UI::EventParams &e);
 
 	UI::Button *saveStateButton_ = nullptr;
 	UI::Button *loadStateButton_ = nullptr;
+	UI::Button *clearStateButton_ = nullptr;
 
 	int slot_;
 	Path gamePath_;
@@ -298,6 +302,7 @@ void SaveSlotView::AddNarrowDateAndButtons(UI::LinearLayout *lines, bool hasSave
 		if (!Achievements::HardcoreModeActive()) {
 			AddLoadStateButton(buttons, new LinearLayoutParams(0.0, Gravity::G_VCENTER));
 		}
+		AddClearStateButton(buttons, new LinearLayoutParams(0.0, Gravity::G_VCENTER));
 
 		std::string dateStr = SaveState::GetSlotDateAsString(gamePath_, slot_);
 		if (!dateStr.empty()) {
@@ -324,8 +329,11 @@ void SaveSlotView::AddWideDateAndButtons(bool hasSave) {
 
 	AddSaveStateButton(this, new LinearLayoutParams(150, FILL_PARENT, Margins(5, 0)));
 
-	if (hasSave && !Achievements::HardcoreModeActive()) {
-		AddLoadStateButton(this, new LinearLayoutParams(150, FILL_PARENT, Margins(5, 0)));
+	if (hasSave) {
+		if (!Achievements::HardcoreModeActive()) {
+			AddLoadStateButton(this, new LinearLayoutParams(150, FILL_PARENT, Margins(5, 0)));
+		}
+		AddClearStateButton(this, new LinearLayoutParams(150, FILL_PARENT, Margins(5, 0)));
 	}
 }
 
@@ -341,6 +349,13 @@ UI::Button *SaveSlotView::AddLoadStateButton(UI::ViewGroup *parent, UI::LayoutPa
 	loadStateButton_ = parent->Add(new UI::Button(pa->T("Load State"), layoutParams));
 	loadStateButton_->OnClick.Handle(this, &SaveSlotView::OnLoadState);
 	return loadStateButton_;
+}
+
+UI::Button *SaveSlotView::AddClearStateButton(UI::ViewGroup *parent, UI::LayoutParams *layoutParams) {
+	auto pa = GetI18NCategory(I18NCat::PAUSE);
+	clearStateButton_ = parent->Add(new UI::Button(pa->T("Clear"), layoutParams));
+	clearStateButton_->OnClick.Handle(this, &SaveSlotView::OnClearState);
+	return clearStateButton_;
 }
 
 void SaveSlotView::Draw(UIContext &dc) {
@@ -369,6 +384,12 @@ void SaveSlotView::OnSaveState(UI::EventParams &e) {
 		e2.v = this;
 		OnStateSaved.Trigger(e2);
 	}
+}
+
+void SaveSlotView::OnClearState(UI::EventParams &e) {
+	UI::EventParams e2{};
+	e2.v = this;
+	OnRequestClear.Trigger(e2);
 }
 
 void GamePauseScreen::resized() {
@@ -471,6 +492,7 @@ void GamePauseScreen::CreateSavestateControls(UI::LinearLayout *leftColumnItems,
 		SaveSlotView *slot = leftColumnItems->Add(new SaveSlotView(gamePath_, i, wideButtons, new LinearLayoutParams(FILL_PARENT, rowHeight, Gravity::G_HCENTER, Margins(0,0,0,0))));
 		slot->OnStateLoaded.Handle(this, &GamePauseScreen::OnState);
 		slot->OnStateSaved.Handle(this, &GamePauseScreen::OnState);
+		slot->OnRequestClear.Handle(this, &GamePauseScreen::OnRequestClearState);
 		slot->OnScreenshotClicked.Handle(this, &GamePauseScreen::OnScreenshotClicked);
 	}
 	leftColumnItems->Add(new Spacer(0.0));
@@ -839,6 +861,21 @@ void GamePauseScreen::dialogFinished(const Screen *dialog, DialogResult dr) {
 			RecreateViews();
 		}
 	}
+}
+
+void GamePauseScreen::OnRequestClearState(UI::EventParams &e) {
+	SaveSlotView *v = static_cast<SaveSlotView *>(e.v);
+	int slot = v->GetSlot();
+	Path gamePath = gamePath_;
+
+	auto pa = GetI18NCategory(I18NCat::PAUSE);
+	auto di = GetI18NCategory(I18NCat::DIALOG);
+	std::string message = ApplySafeSubstitutions(pa->T("Delete savestate in slot %1?"), StringFromFormat("%d", slot + 1));
+	screenManager()->push(new UI::MessagePopupScreen(pa->T("Clear"), message, di->T("Delete"), di->T("Cancel"), [gamePath, slot](bool yes) {
+		if (yes) {
+			SaveState::DeleteSlot(gamePath, slot);
+		}
+	}));
 }
 
 void GamePauseScreen::OnScreenshotClicked(UI::EventParams &e) {
