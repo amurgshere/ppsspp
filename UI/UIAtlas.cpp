@@ -457,6 +457,7 @@ Draw::Texture *GenerateUIAtlas(Draw::DrawContext *draw, Atlas *atlas, float dpiS
 	g_cachedDpiScale = dpiScale;
 
 	// Create the texture.
+	// (See ClearUIAtlasImageCache() for shutdown-time release of g_cachedUIAtlasImage.)
 	Draw::TextureDesc desc{};
 	desc.width = g_cachedUIAtlasImage.width();
 	desc.height = g_cachedUIAtlasImage.height();
@@ -467,6 +468,15 @@ Draw::Texture *GenerateUIAtlas(Draw::DrawContext *draw, Atlas *atlas, float dpiS
 	desc.initData.push_back((const u8 *)g_cachedUIAtlasImage.data());
 	desc.tag = "UIAtlas";
 	return draw->CreateTexture(desc);
+}
+
+// g_cachedUIAtlasImage is a static global whose destructor isn't guaranteed
+// to run (PPSSPP doesn't call exit() on shutdown), so its backing buffer
+// (can be several MB at high DPI/max texture size) must be released
+// explicitly - called from NativeShutdownGraphics().
+void ClearUIAtlasImageCache() {
+	g_cachedUIAtlasImage.clear();
+	g_cachedDpiScale = 0.0f;
 }
 
 static void LoadAtlasMetadata(Atlas &metadata, const char *filename) {

@@ -59,6 +59,11 @@ public:
 	void SetGame(const Path &path);
 	void Update();
 	bool Play();
+	// Releases the AT3 reader/buffers and cached UI sound samples. PPSSPP
+	// doesn't call exit() on shutdown (to support backend restart without a
+	// process exit), so static destructors aren't guaranteed to run - this
+	// must be called explicitly from NativeShutdown().
+	void Shutdown();
 
 	SoundEffectMixer &SFX() {
 		return sfxMixer_;

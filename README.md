@@ -51,6 +51,7 @@ Changes since forking from m4xw's Switch port (based on upstream 1.19.3):
 - **[ALL] Controller/input**: both analog sticks shown in calibration view, PRESSURE/SIZE axes for right-stick diagonal mapping — lets you map digital buttons (e.g. ABXY) to the right stick with diagonal support, beneficial for games like Age of Zombies and Super Stardust Delta.
 - **[ALL] Rounded UI corners** — buttons, list rows, popups, headers, and panel backgrounds now render with subtle rounded corners instead of hard right angles, for a softer, more polished look; degrades gracefully to a smaller radius on very small elements rather than clipping.
 - **[ALL] Pause-menu exit option for auto-loaded ROMs** — new System settings option controls what the pause menu offers when PPSSPP is launched directly into a specific ROM (Switch Home Screen forwarder, Windows CLI/file-association launch, etc.): "Exit to Menu" (default), "Exit PPSSPP", or "None" (hides the item entirely for a console-style experience). The `--pause-menu-exit` CLI flag still overrides it when passed. Normal game-browser launches are unaffected.
+- **[SWITCH] Fixed crash when launching another homebrew app after exiting PPSSPP** — exiting PPSSPP no longer breaks the next app launched from the Homebrew Menu.
 - **[ALL] Full CI pipeline** covering Windows (x64/ARM64), Linux, macOS (universal), Android (incl. Quest VR), iOS, UWP, and Switch NRO builds, with unit + headless test jobs.
 - **[ALL]** Assorted build fixes to keep every platform compiling cleanly on this branch, and misc. compat.ini/credits/QoL fixes.
 

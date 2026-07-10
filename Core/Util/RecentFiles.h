@@ -30,6 +30,11 @@ public:
 	bool ContainsFile(std::string_view filename);
 
 	void EnsureThread();
+	// Joins the worker thread. Must be called before returning from main() on
+	// platforms where static destructors can't be relied on to run (Switch
+	// homebrew shares one process across NRO launches - a never-unmapped
+	// thread stack corrupts the next app's heap).
+	void Shutdown();
 
 	std::vector<std::string> GetRecentFiles() const;
 private:

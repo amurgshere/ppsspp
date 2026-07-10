@@ -973,6 +973,11 @@ void NativeShutdownGraphics() {
 	}
 	g_iconCache.ClearTextures();
 
+	// g_cachedUIAtlasImage (UI/UIAtlas.cpp) is a static global whose CPU-side
+	// buffer isn't guaranteed to be freed via its own destructor (PPSSPP
+	// doesn't call exit() on shutdown) - release it explicitly here.
+	ClearUIAtlasImageCache();
+
 	// TODO: This is not really necessary with Vulkan on Android - could keep shaders etc in memory
 	if (gpu)
 		gpu->DeviceLost();
@@ -1587,6 +1592,11 @@ void NativeShutdown() {
 
 	Achievements::Shutdown();
 
+	// Not relying on g_BackgroundAudio's static destructor (see comment on
+	// BackgroundAudio::Shutdown()) - explicitly release its AT3 reader/
+	// buffers and cached UI sound samples here.
+	g_BackgroundAudio.Shutdown();
+
 	if (g_Config.bAchievementsEnable) {
 		FILE *iconCacheFile = File::OpenCFile(GetSysDirectory(DIRECTORY_CACHE) / "icon.cache", "wb");
 		if (iconCacheFile) {
@@ -1594,6 +1604,12 @@ void NativeShutdown() {
 			fclose(iconCacheFile);
 		}
 	}
+
+	// NativeShutdownGraphics() already released the GPU-side icon textures
+	// (ClearTextures()), but the cached PNG byte data itself (cache_) was
+	// never released - g_iconCache is a static global whose destructor isn't
+	// guaranteed to run (see comment on BackgroundAudio::Shutdown()).
+	g_iconCache.ClearData();
 
 	if (g_screenManager) {
 		g_screenManager->shutdown();
@@ -1614,6 +1630,13 @@ void NativeShutdown() {
 	net::Shutdown();
 
 	g_Discord.Shutdown();
+
+	// Join the recent-files worker thread explicitly. Its only other join is
+	// in g_recentFiles' static destructor, which doesn't run before hbloader
+	// hands the process to the next NRO on Switch, leaking the thread's
+	// still-mapped stack into the shared heap. (NativeInit re-creates the
+	// thread via EnsureThread when restarting.)
+	g_recentFiles.Shutdown();
 
 	ShaderTranslationShutdown();
 

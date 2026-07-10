@@ -296,6 +296,13 @@ void BackgroundAudio::Clear(bool hard) {
 	sndLoadPending_ = false;
 }
 
+void BackgroundAudio::Shutdown() {
+	std::lock_guard<std::mutex> lock(mutex_);
+	Clear(true);
+	bgGamePath_.clear();
+	sfxMixer_.samples_.clear();
+}
+
 void BackgroundAudio::SetGame(const Path &path) {
 	if (path == bgGamePath_) {
 		// Do nothing
