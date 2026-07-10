@@ -219,6 +219,9 @@ void GameImageView::Draw(UIContext &dc) {
 	float nw = std::min(bounds_.h * textureWidth_ / textureHeight_, (float)bounds_.w);
 	int x = bounds_.x + (bounds_.w - nw) / 2.0f;
 
+	// Backdrop so the image's shape is visible even where it's transparent.
+	dc.FillRect(UI::Drawable(0x80000000), Bounds(x, bounds_.y, nw, bounds_.h));
+
 	dc.Flush();
 	dc.GetDrawContext()->BindTexture(0, texture);
 	dc.Draw()->Rect(x, bounds_.y, nw, bounds_.h, color);

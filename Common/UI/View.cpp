@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <mutex>
 
+#include "ppsspp_config.h"
+
 #include "Common/Input/InputState.h"
 #include "Common/Input/KeyCodes.h"
 #include "Common/Render/DrawBuffer.h"
@@ -1290,6 +1292,24 @@ static std::string FirstLine(const std::string &text) {
 bool TextEdit::Touch(const TouchInput &touch) {
 	if (touch.flags & TOUCH_DOWN) {
 		if (bounds_.Contains(touch.x, touch.y)) {
+#if PPSSPP_PLATFORM(SWITCH)
+			// The Switch's on-screen keyboard, when triggered by the normal
+			// focus-driven text input path (SDL_StartTextInput), always starts
+			// blank instead of showing the field's current text - unlike a real
+			// hardware keyboard or Android's IME, which edit the visible text in
+			// place. Route through the same modal input-box mechanism
+			// PopupTextInputChoice already uses, which explicitly passes the
+			// current text as the keyboard's initial content.
+			if (System_GetPropertyBool(SYSPROP_HAS_TEXT_INPUT_DIALOG)) {
+				System_InputBoxGetString(NON_EPHEMERAL_TOKEN, title_, text_, passwordMasking_, [this](const std::string &value, int) {
+					SetText(value);
+					EventParams e{};
+					e.v = this;
+					OnTextChange.Trigger(e);
+				});
+				return true;
+			}
+#endif
 			SetFocusedView(this, true);
 			return true;
 		}
