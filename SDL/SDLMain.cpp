@@ -168,32 +168,40 @@ static void InitSDLAudioDevice(const std::string &name = "") {
 	}
 
 	// List available audio devices before trying to open, for debugging purposes.
+	// Logged at WARNING (not INFO) so this init sequence is visible with the
+	// verbosity users are expected to run with day-to-day, to help diagnose
+	// intermittent no-sound-on-launch reports without needing full INFO/NOTICE.
 	const int deviceCount = SDL_GetNumAudioDevices(0);
 	if (deviceCount > 0) {
-		INFO_LOG(Log::Audio, "Available audio devices:");
+		WARN_LOG(Log::Audio, "Available audio devices (%d):", deviceCount);
 		for (int i = 0; i < deviceCount; i++) {
 			const char *deviceName = SDL_GetAudioDeviceName(i, 0);
-			INFO_LOG(Log::Audio, " * '%s'", deviceName);
+			WARN_LOG(Log::Audio, " * '%s'", deviceName ? deviceName : "(null)");
 		}
 	} else {
-		INFO_LOG(Log::Audio, "Failed to list audio devices: retval=%d", deviceCount);
+		WARN_LOG(Log::Audio, "Failed to list audio devices: retval=%d", deviceCount);
 	}
+
+	WARN_LOG(Log::Audio, "Configured audio device (sAudioDevice): '%s'", g_Config.sAudioDevice.c_str());
 
 	audioDev = 0;
 	if (!startDevice.empty()) {
-		INFO_LOG(Log::Audio, "Opening audio device: '%s'", startDevice.c_str());
+		WARN_LOG(Log::Audio, "Opening audio device: '%s'", startDevice.c_str());
 		audioDev = SDL_OpenAudioDevice(startDevice.c_str(), 0, &fmt, &g_retFmt, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
 		if (audioDev <= 0) {
-			WARN_LOG(Log::Audio, "Failed to open audio device '%s'", startDevice.c_str());
+			WARN_LOG(Log::Audio, "Failed to open audio device '%s': '%s'", startDevice.c_str(), SDL_GetError());
 		}
 	}
 	if (audioDev <= 0) {
 		if (audioDev < 0) {
 			WARN_LOG(Log::Audio, "SDL: Error: '%s'. Trying the default audio device", SDL_GetError());
 		} else {
-			INFO_LOG(Log::Audio, "Opening default audio device");
+			WARN_LOG(Log::Audio, "Opening default audio device");
 		}
 		audioDev = SDL_OpenAudioDevice(nullptr, 0, &fmt, &g_retFmt, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+		if (audioDev <= 0) {
+			WARN_LOG(Log::Audio, "Failed to open default audio device: '%s'", SDL_GetError());
+		}
 	}
 	if (audioDev <= 0) {
 		ERROR_LOG(Log::Audio, "Failed to open audio device '%s', second try. Giving up.", SDL_GetError());
