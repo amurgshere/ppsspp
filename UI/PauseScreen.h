@@ -48,6 +48,7 @@ private:
 
 	void OnGameSettings(UI::EventParams &e);
 	void OnExit(UI::EventParams &e);
+	void ProceedWithExit(bool exitsEmulator);
 	void OnReportFeedback(UI::EventParams &e);
 
 	void OnRewind(UI::EventParams &e);
@@ -67,6 +68,14 @@ private:
 	bool finishNextFrame_ = false;
 	DialogResult finishNextFrameResult_ = DR_CANCEL;
 
+	// Set from the "Always ask before auto saving" popup's "No" answer.
+	// Pushing the normal exit-confirm popup synchronously from within that
+	// popup's own finish callback corrupts input routing (the screen stack is
+	// still mid-teardown) - so instead we defer to the next update() tick,
+	// same as the existing finishNextFrame_ pattern above.
+	bool pendingProceedWithExit_ = false;
+	bool pendingProceedExitsEmulator_ = false;
+
 	UI::Choice *playButton_ = nullptr;
 
 	// State change tracking, a bit ugly heh, but works.
@@ -80,3 +89,10 @@ private:
 };
 
 std::string GetConfirmExitMessage();
+int GetUnsavedProgressSeconds();
+
+// True if "Always ask before auto saving" applies right now (mode configured,
+// setting on, seconds gate passed, a slot resolves) - fills outSlot with the
+// slot that would be used. Used to gate the ask-before-exit confirm dialog.
+bool ShouldAskBeforeAutoSave(const Path &gamePath, int *outSlot);
+void PerformAutoSaveNow(const Path &gamePath, int slot);

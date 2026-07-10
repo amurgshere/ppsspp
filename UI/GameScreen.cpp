@@ -321,6 +321,9 @@ void GameScreen::CreateSettingsViews(UI::ViewGroup *rightColumn) {
 
 	if (!inGame_) {
 		rightColumnItems->Add(new Choice(ga->T("Play"), ImageID("I_PLAY")))->OnClick.Handle(this, &GameScreen::OnPlay);
+		if (g_Config.iAutoLoadSaveState != 0) {
+			rightColumnItems->Add(new Choice(ga->T("Play without autoload"), ImageID("I_PLAY")))->OnClick.Handle(this, &GameScreen::OnPlayWithoutAutoload);
+		}
 	}
 
 	if (!info_->id.empty() && !inGame_) {
@@ -476,6 +479,10 @@ void GameScreen::OnSwitchBack(UI::EventParams &e) {
 
 void GameScreen::OnPlay(UI::EventParams &e) {
 	screenManager()->switchScreen(new EmuScreen(gamePath_));
+}
+
+void GameScreen::OnPlayWithoutAutoload(UI::EventParams &e) {
+	screenManager()->switchScreen(new EmuScreen(gamePath_, true));
 }
 
 void GameScreen::OnGameSettings(UI::EventParams &e) {

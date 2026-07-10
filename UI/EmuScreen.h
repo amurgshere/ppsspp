@@ -39,7 +39,7 @@ class ChatMenu;
 
 class EmuScreen : public UIScreen {
 public:
-	EmuScreen(const Path &filename);
+	EmuScreen(const Path &filename, bool skipAutoLoad = false);
 	~EmuScreen();
 
 	const char *tag() const override { return "Emu"; }
@@ -90,6 +90,8 @@ private:
 	void onVKeyAnalog(VirtKey virtualKeyCode, float value);
 
 	void AutoLoadSaveState();
+	void AutoSaveSaveState();
+	void ProceedWithExitApp();
 	bool checkPowerDown();
 
 	void ProcessQueuedVKeys();
@@ -98,6 +100,12 @@ private:
 	UI::Event OnDevMenu;
 	UI::Event OnChatMenu;
 	bool bootPending_ = true;
+	bool skipAutoLoad_ = false;
+	// Set from the "Always ask before auto saving" popup's "No" answer for
+	// VIRTKEY_EXIT_APP. Pushing the normal exit-confirm popup synchronously
+	// from within that popup's own finish callback corrupts input routing
+	// (the screen stack is still mid-teardown) - deferred to update() instead.
+	bool pendingProceedWithExitApp_ = false;
 	Path gamePath_;
 
 	bool quit_ = false;

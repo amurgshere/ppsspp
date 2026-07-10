@@ -154,8 +154,8 @@ static void SetPSPAnalog(int iInternalScreenRotation, int stick, float x, float 
 	__CtrlSetAnalogXY(stick, x, y);
 }
 
-EmuScreen::EmuScreen(const Path &filename)
-	: gamePath_(filename) {
+EmuScreen::EmuScreen(const Path &filename, bool skipAutoLoad)
+	: gamePath_(filename), skipAutoLoad_(skipAutoLoad) {
 	saveStateSlot_ = SaveState::GetCurrentSlot();
 	controlMapper_.SetCallbacks(
 		std::bind(&EmuScreen::onVKey, this, _1, _2),
@@ -378,7 +378,7 @@ void EmuScreen::bootComplete() {
 	System_Notify(SystemNotification::DISASSEMBLY);
 
 	NOTICE_LOG(Log::Boot, "Booted %s...", PSP_CoreParameter().fileToStart.c_str());
-	if (!Achievements::HardcoreModeActive()) {
+	if (!Achievements::HardcoreModeActive() && !skipAutoLoad_) {
 		// Don't auto-load savestates in hardcore mode.
 		AutoLoadSaveState();
 	}
@@ -444,6 +444,7 @@ EmuScreen::~EmuScreen() {
 	// Should not be able to quit during boot, as boot can't be cancelled.
 	_dbg_assert_(!bootPending_);
 	if (!bootPending_) {
+		AutoSaveSaveState();
 		Achievements::UnloadGame();
 		PSP_Shutdown(true);
 	}
@@ -1032,19 +1033,30 @@ void EmuScreen::ProcessVKey(VirtKey virtKey) {
 	case VIRTKEY_EXIT_APP:
 	{
 		if (!bootPending_) {
-			std::string confirmExitMessage = GetConfirmExitMessage();
-			if (!confirmExitMessage.empty()) {
+			// If configured, ask for explicit confirmation before auto-saving,
+			// ahead of (and instead of, if they agree) the normal exit dialog.
+			int autoSaveSlot = -1;
+			if (ShouldAskBeforeAutoSave(gamePath_, &autoSaveSlot)) {
+				auto pa = GetI18NCategory(I18NCat::PAUSE);
 				auto di = GetI18NCategory(I18NCat::DIALOG);
-				auto mm = GetI18NCategory(I18NCat::MAINMENU);
-				confirmExitMessage += '\n';
-				confirmExitMessage += di->T("Are you sure you want to exit?");
-				screenManager()->push(new UI::MessagePopupScreen(mm->T("Exit"), confirmExitMessage, di->T("Yes"), di->T("No"), [=](bool result) {
-					if (result) {
+				bool overwriting = SaveState::HasSaveInSlot(gamePath_, autoSaveSlot);
+				std::string message = ApplySafeSubstitutions(
+					overwriting ? pa->T("This will overwrite savestate slot %1.") : pa->T("This will save to slot %1."),
+					StringFromFormat("%d", autoSaveSlot + 1));
+				Path gamePath = gamePath_;
+				screenManager()->push(new UI::MessagePopupScreen(pa->T("Auto save savestate"), message, di->T("Yes"), di->T("No"), [this, gamePath, autoSaveSlot](bool yes) {
+					if (yes) {
+						PerformAutoSaveNow(gamePath, autoSaveSlot);
 						System_ExitApp();
+					} else {
+						// Don't push a new popup synchronously from within this
+						// one's own finish callback - the screen stack is still
+						// mid-teardown here, which corrupts input routing.
+						pendingProceedWithExitApp_ = true;
 					}
 				}));
 			} else {
-				System_ExitApp();
+				ProceedWithExitApp();
 			}
 		}
 		break;
@@ -1452,6 +1464,11 @@ void EmuScreen::update() {
 
 	// This is where views are recreated.
 	UIScreen::update();
+
+	if (pendingProceedWithExitApp_) {
+		pendingProceedWithExitApp_ = false;
+		ProceedWithExitApp();
+	}
 
 	resumeButton_->SetVisibility(coreState == CoreState::CORE_RUNTIME_ERROR && Memory::MemFault_MayBeResumable() ? V_VISIBLE : V_GONE);
 	resetButton_->SetVisibility(coreState == CoreState::CORE_RUNTIME_ERROR ? V_VISIBLE : V_GONE);
@@ -2084,6 +2101,16 @@ void EmuScreen::AutoLoadSaveState() {
 	}
 
 	if (g_Config.iAutoLoadSaveState && autoSlot != -1) {
+		// Don't clobber more recent in-game progress with an older savestate -
+		// e.g. the player saved via the game's own save menu after the
+		// savestate we'd otherwise auto-load. Checked via file mtimes only,
+		// nothing persisted.
+		std::string gameID = g_paramSFO.GetValueString("DISC_ID");
+		if (g_Config.bAutoLoadSaveStateOnlyIfNewer && SaveState::HasNewerGameSaveThanSlot(gamePath_, gameID, autoSlot)) {
+			auto sy = GetI18NCategory(I18NCat::SYSTEM);
+			g_OSD.Show(OSDType::MESSAGE_INFO, sy->T("Skipped auto-load: newer in-game save found"));
+			return;
+		}
 		SaveState::LoadSlot(gamePath_, autoSlot, [this, autoSlot](SaveState::Status status, std::string_view message) {
 			AfterSaveStateAction(status, message);
 			auto sy = GetI18NCategory(I18NCat::SYSTEM);
@@ -2095,6 +2122,50 @@ void EmuScreen::AutoLoadSaveState() {
 		});
 		g_Config.iCurrentStateSlot = autoSlot;
 	}
+}
+
+void EmuScreen::ProceedWithExitApp() {
+	std::string confirmExitMessage = GetConfirmExitMessage();
+	if (!confirmExitMessage.empty()) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
+		auto mm = GetI18NCategory(I18NCat::MAINMENU);
+		confirmExitMessage += '\n';
+		confirmExitMessage += di->T("Are you sure you want to exit?");
+		screenManager()->push(new UI::MessagePopupScreen(mm->T("Exit"), confirmExitMessage, di->T("Yes"), di->T("No"), [=](bool result) {
+			if (result) {
+				System_ExitApp();
+			}
+		}));
+	} else {
+		System_ExitApp();
+	}
+}
+
+void EmuScreen::AutoSaveSaveState() {
+	if (bootPending_ || !PSP_IsInited())
+		return;
+	if (g_Config.bAutoSaveSaveStateAlwaysAsk) {
+		// In this mode, saving only ever happens via the explicit confirm
+		// dialog at the exit-initiation points (see PauseScreen::OnExit and
+		// VIRTKEY_EXIT_APP) - never silently here on teardown.
+		return;
+	}
+	int unsavedSeconds = GetUnsavedProgressSeconds();
+	// unsavedSeconds < 0 means no save/load has happened yet this session -
+	// treat that as exceeding any threshold, so the very first auto-save
+	// isn't blocked forever.
+	if (g_Config.iAutoSaveSaveStateAfterSeconds > 0 && unsavedSeconds >= 0 &&
+	    unsavedSeconds < g_Config.iAutoSaveSaveStateAfterSeconds) {
+		return;
+	}
+	int slot = SaveState::ResolveAutoSaveSlot(gamePath_);
+	if (slot == -1)
+		return;
+	SaveState::SaveSlot(gamePath_, slot, [](SaveState::Status status, std::string_view message) {
+		AfterSaveStateAction(status, message);
+	});
+	SaveState::Process(); // Force the queued save to run now — the kernel is
+	                       // about to be torn down and won't get another frame.
 }
 
 void EmuScreen::resized() {

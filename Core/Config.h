@@ -330,6 +330,10 @@ public:
 	std::string sStateUndoLastSaveGame;
 	int iStateUndoLastSaveSlot;
 	int iAutoLoadSaveState; // 0 = off, 1 = oldest, 2 = newest, >2 = slot number + 3
+	bool bAutoLoadSaveStateOnlyIfNewer; // If true, skip auto-load if the selected savestate slot is older than the most recent in-game save. Default true.
+	int iAutoSaveSaveState; // See AutoSaveSaveState enum in ConfigValues.h. Default OFF.
+	int iAutoSaveSaveStateAfterSeconds; // Gate: only auto-save if GetUnsavedProgressSeconds() exceeds this. 0 = always. Default 60.
+	bool bAutoSaveSaveStateAlwaysAsk; // If true, auto-save only happens after an explicit Yes/No confirm on exit, never silently. Default false.
 	bool bEnableCheats;
 	bool bReloadCheats;
 	bool bEnablePlugins;

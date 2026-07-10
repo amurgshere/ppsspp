@@ -26,6 +26,7 @@
 #include "Common/System/System.h"
 
 #include "Common/File/FileUtil.h"
+#include "Common/File/DirListing.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
 #include "Common/StringUtils.h"
@@ -63,6 +64,9 @@ constexpr int LOAD_UNDO_SLOT = -2;
 namespace SaveState {
 
 double g_lastSaveTime = -1.0;
+// -1 = no save/load has happened yet this process. Not persisted - always
+// resets on launch, used by the "Last loaded/saved save this session" auto-save mode.
+static int g_lastSessionSlot = -1;
 
 	struct SaveStart
 	{
@@ -838,6 +842,79 @@ double g_lastSaveTime = -1.0;
 		return oldestSlot;
 	}
 
+	bool HasNewerGameSaveThanSlot(const Path &gameFilename, const std::string &gameID, int slot) {
+		Path stateFn = GenerateSaveSlotFilename(gameFilename, slot, STATE_EXTENSION);
+		File::FileInfo stateInfo;
+		if (!File::GetFileInfo(stateFn, &stateInfo))
+			return false;
+
+		if (gameID.size() < 5) {
+			// Invalid game ID - can't find its save directories.
+			return false;
+		}
+
+		Path memc = GetSysDirectory(DIRECTORY_SAVEDATA);
+		std::vector<File::FileInfo> dirs;
+		File::GetFilesInDir(memc, &dirs, nullptr, 0, gameID);
+
+		for (const auto &dir : dirs) {
+			if (!dir.isDirectory)
+				continue;
+			std::vector<File::FileInfo> files;
+			File::GetFilesInDir(dir.fullName, &files);
+			for (const auto &f : files) {
+				if (f.mtime > stateInfo.mtime)
+					return true;
+			}
+		}
+		return false;
+	}
+
+	int ResolveAutoSaveSlot(const Path &gameFilename) {
+		auto firstEmptySlot = [&]() -> int {
+			for (int i = 0; i < NUM_SLOTS; i++) {
+				if (!HasSaveInSlot(gameFilename, i))
+					return i;
+			}
+			return -1;
+		};
+
+		switch ((AutoSaveSaveState)g_Config.iAutoSaveSaveState) {
+		case AutoSaveSaveState::OFF:
+			return -1;
+		case AutoSaveSaveState::FIRST_EMPTY_THEN_OLDEST: {
+			int slot = firstEmptySlot();
+			return slot != -1 ? slot : GetOldestSlot(gameFilename);
+		}
+		case AutoSaveSaveState::FIRST_EMPTY_THEN_NEWEST: {
+			int slot = firstEmptySlot();
+			return slot != -1 ? slot : GetNewestSlot(gameFilename);
+		}
+		case AutoSaveSaveState::OLDEST_OR_SLOT1: {
+			int slot = GetOldestSlot(gameFilename);
+			return slot != -1 ? slot : 0;
+		}
+		case AutoSaveSaveState::NEWEST_OR_SLOT1: {
+			int slot = GetNewestSlot(gameFilename);
+			return slot != -1 ? slot : 0;
+		}
+		case AutoSaveSaveState::LAST_SESSION_THEN_EMPTY_THEN_OLDEST: {
+			int slot = GetLastSessionSlot();
+			if (slot != -1)
+				return slot;
+			slot = firstEmptySlot();
+			return slot != -1 ? slot : GetOldestSlot(gameFilename);
+		}
+		case AutoSaveSaveState::SLOT1:
+		case AutoSaveSaveState::SLOT2:
+		case AutoSaveSaveState::SLOT3:
+		case AutoSaveSaveState::SLOT4:
+		case AutoSaveSaveState::SLOT5:
+			return g_Config.iAutoSaveSaveState - (int)AutoSaveSaveState::SLOT1;
+		}
+		return -1;
+	}
+
 	std::string GetSlotDateAsString(const Path &gameFilename, int slot) {
 		Path fn = GenerateSaveSlotFilename(gameFilename, slot, STATE_EXTENSION);
 		tm time;
@@ -1008,6 +1085,8 @@ double g_lastSaveTime = -1.0;
 					}
 #endif
 					g_lastSaveTime = time_now_d();
+					if (op.slot >= 0)
+						g_lastSessionSlot = op.slot;
 				} else if (result == CChunkFileReader::ERROR_BROKEN_STATE) {
 					HandleLoadFailure(false);
 					callbackMessage = std::string(i18nLoadFailure) + ": " + errorString;
@@ -1044,6 +1123,8 @@ double g_lastSaveTime = -1.0;
 					}
 #endif
 					g_lastSaveTime = time_now_d();
+					if (op.slot >= 0)
+						g_lastSessionSlot = op.slot;
 				} else if (result == CChunkFileReader::ERROR_BROKEN_STATE) {
 					// TODO: What else might we want to do here? This should be very unusual.
 					callbackMessage = i18nSaveFailure;
@@ -1187,5 +1268,9 @@ double g_lastSaveTime = -1.0;
 		} else {
 			return time_now_d() - g_lastSaveTime;
 		}
+	}
+
+	int GetLastSessionSlot() {
+		return g_lastSessionSlot;
 	}
 }

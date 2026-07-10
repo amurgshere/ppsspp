@@ -1412,6 +1412,11 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 	systemSettings->Add(new CheckBox(&g_Config.bEnableStateUndo, sy->T("Savestate slot backups")));
 	static const char *autoLoadSaveStateChoices[] = { "Off", "Oldest Save", "Newest Save", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5" };
 	systemSettings->Add(new PopupMultiChoice(&g_Config.iAutoLoadSaveState, sy->T("Auto Load Savestate"), autoLoadSaveStateChoices, 0, ARRAY_SIZE(autoLoadSaveStateChoices), I18NCat::SYSTEM, screenManager()));
+	systemSettings->Add(new CheckBox(&g_Config.bAutoLoadSaveStateOnlyIfNewer, sy->T("Only auto load if selected savestate is newer than latest game save")));
+	static const char *autoSaveSaveStateChoices[] = { "Off", "First Empty Available then Oldest", "First Empty Available then Newest", "Oldest or Slot 1", "Newest or Slot 1", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5", "Last Loaded/Saved Save This Session, Next Empty, Oldest Save" };
+	systemSettings->Add(new PopupMultiChoice(&g_Config.iAutoSaveSaveState, sy->T("Auto save savestate"), autoSaveSaveStateChoices, 0, ARRAY_SIZE(autoSaveSaveStateChoices), I18NCat::SYSTEM, screenManager()));
+	systemSettings->Add(new PopupSliderChoice(&g_Config.iAutoSaveSaveStateAfterSeconds, 0, 1200, 60, sy->T("Only auto save after seconds"), screenManager(), "s"));
+	systemSettings->Add(new CheckBox(&g_Config.bAutoSaveSaveStateAlwaysAsk, sy->T("Always ask before auto saving")));
 	if (System_GetPropertyBool(SYSPROP_HAS_KEYBOARD))
 		systemSettings->Add(new CheckBox(&g_Config.bBypassOSKWithKeyboard, sy->T("Use system native keyboard")));
 

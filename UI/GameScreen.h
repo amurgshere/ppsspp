@@ -53,6 +53,7 @@ protected:
 private:
 	// Event handlers
 	void OnPlay(UI::EventParams &e);
+	void OnPlayWithoutAutoload(UI::EventParams &e);
 	void OnGameSettings(UI::EventParams &e);
 	void OnDeleteSaveData(UI::EventParams &e);
 	void OnDeleteGame(UI::EventParams &e);

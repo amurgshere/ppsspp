@@ -171,6 +171,20 @@ enum class AutoLoadSaveState {
 	NEWEST = 2,
 };
 
+enum class AutoSaveSaveState {
+	OFF = 0,
+	FIRST_EMPTY_THEN_OLDEST = 1,
+	FIRST_EMPTY_THEN_NEWEST = 2,
+	OLDEST_OR_SLOT1 = 3,
+	NEWEST_OR_SLOT1 = 4,
+	SLOT1 = 5,
+	SLOT2 = 6,
+	SLOT3 = 7,
+	SLOT4 = 8,
+	SLOT5 = 9,
+	LAST_SESSION_THEN_EMPTY_THEN_OLDEST = 10,
+};
+
 enum class FastForwardMode {
 	CONTINUOUS = 0,
 	SKIP_FLIP = 2,

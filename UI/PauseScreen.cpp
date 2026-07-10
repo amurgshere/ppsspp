@@ -408,6 +408,11 @@ void GamePauseScreen::update() {
 		finishNextFrame_ = false;
 	}
 
+	if (pendingProceedWithExit_) {
+		pendingProceedWithExit_ = false;
+		ProceedWithExit(pendingProceedExitsEmulator_);
+	}
+
 	const bool networkConnected = IsNetworkConnected();
 	const InfraDNSConfig &dnsConfig = GetInfraDNSConfig();
 	if (g_netInited != lastNetInited_ || netInetInited != lastNetInetInited_ || lastAdhocServerConnected_ != g_adhocServerConnected || lastOnline_ != networkConnected || lastDNSConfigLoaded_ != dnsConfig.loaded) {
@@ -897,6 +902,30 @@ int GetUnsavedProgressSeconds() {
 	return (int)std::min(timeSinceSaveState, timeSinceGameSave);
 }
 
+bool ShouldAskBeforeAutoSave(const Path &gamePath, int *outSlot) {
+	if (!g_Config.bAutoSaveSaveStateAlwaysAsk || g_Config.iAutoSaveSaveState == 0)
+		return false;
+
+	int unsavedSeconds = GetUnsavedProgressSeconds();
+	if (g_Config.iAutoSaveSaveStateAfterSeconds > 0 && unsavedSeconds >= 0 &&
+	    unsavedSeconds < g_Config.iAutoSaveSaveStateAfterSeconds) {
+		return false;
+	}
+
+	int slot = SaveState::ResolveAutoSaveSlot(gamePath);
+	if (slot == -1)
+		return false;
+
+	if (outSlot)
+		*outSlot = slot;
+	return true;
+}
+
+void PerformAutoSaveNow(const Path &gamePath, int slot) {
+	SaveState::SaveSlot(gamePath, slot, &AfterSaveStateAction);
+	SaveState::Process(); // Force the queued save to run now, synchronously.
+}
+
 // If empty, no confirmation dialog should be shown.
 std::string GetConfirmExitMessage() {
 	std::string confirmMessage;
@@ -932,12 +961,7 @@ std::string GetConfirmExitMessage() {
 	return confirmMessage;
 }
 
-void GamePauseScreen::OnExit(UI::EventParams &e) {
-	// --pause-menu-exit always overrides the per-game setting; otherwise use
-	// the per-game setting only when we were launched directly into a ROM.
-	bool exitsEmulator = g_Config.bPauseMenuExitsEmulator ||
-		(g_Config.bLoadedViaDirectLaunch && g_Config.iPauseMenuExitOption == 1 /* Exit PPSSPP */);
-
+void GamePauseScreen::ProceedWithExit(bool exitsEmulator) {
 	std::string confirmExitMessage = GetConfirmExitMessage();
 
 	if (!confirmExitMessage.empty()) {
@@ -959,6 +983,47 @@ void GamePauseScreen::OnExit(UI::EventParams &e) {
 		} else {
 			TriggerFinish(DR_OK);
 		}
+	}
+}
+
+void GamePauseScreen::OnExit(UI::EventParams &e) {
+	// --pause-menu-exit always overrides the per-game setting; otherwise use
+	// the per-game setting only when we were launched directly into a ROM.
+	bool exitsEmulator = g_Config.bPauseMenuExitsEmulator ||
+		(g_Config.bLoadedViaDirectLaunch && g_Config.iPauseMenuExitOption == 1 /* Exit PPSSPP */);
+
+	// If configured, ask for explicit confirmation before auto-saving, ahead
+	// of (and instead of, if they agree) the normal exit-confirmation dialog.
+	int autoSaveSlot = -1;
+	if (ShouldAskBeforeAutoSave(gamePath_, &autoSaveSlot)) {
+		auto pa = GetI18NCategory(I18NCat::PAUSE);
+		auto di = GetI18NCategory(I18NCat::DIALOG);
+		bool overwriting = SaveState::HasSaveInSlot(gamePath_, autoSaveSlot);
+		std::string message = ApplySafeSubstitutions(
+			overwriting ? pa->T("This will overwrite savestate slot %1.") : pa->T("This will save to slot %1."),
+			StringFromFormat("%d", autoSaveSlot + 1));
+		Path gamePath = gamePath_;
+		screenManager()->push(new UI::MessagePopupScreen(pa->T("Auto save savestate"), message, di->T("Yes"), di->T("No"), [this, gamePath, autoSaveSlot, exitsEmulator](bool yes) {
+			if (yes) {
+				PerformAutoSaveNow(gamePath, autoSaveSlot);
+				// Progress was just saved - go straight to exiting rather than
+				// re-checking/showing the "unsaved progress" exit dialog.
+				if (exitsEmulator) {
+					System_ExitApp();
+				} else {
+					finishNextFrameResult_ = DR_OK;
+					finishNextFrame_ = true;
+				}
+			} else {
+				// Don't push a new popup synchronously from within this one's
+				// own finish callback - the screen stack is still mid-teardown
+				// at this point, which corrupts input routing. Defer instead.
+				pendingProceedWithExit_ = true;
+				pendingProceedExitsEmulator_ = exitsEmulator;
+			}
+		}));
+	} else {
+		ProceedWithExit(exitsEmulator);
 	}
 }
 

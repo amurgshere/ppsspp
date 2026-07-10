@@ -63,9 +63,24 @@ namespace SaveState {
 
 	int GetCurrentSlot();
 
+	// -1 if no save/load has happened yet this session (process launch).
+	int GetLastSessionSlot();
+
 	// Returns -1 if there's no oldest/newest slot.
 	int GetNewestSlot(const Path &gameFilename);
 	int GetOldestSlot(const Path &gameFilename);
+
+	// True if any file under this game's in-game (non-savestate) save data
+	// directories was modified more recently than the given savestate slot.
+	// Used to avoid auto-loading a savestate that's older than the player's
+	// most recent real progress. Compares file mtimes on disk only - no
+	// persistent state is stored.
+	bool HasNewerGameSaveThanSlot(const Path &gameFilename, const std::string &gameID, int slot);
+
+	// Resolves which slot the "Auto save savestate" feature (see
+	// AutoSaveSaveState in ConfigValues.h) would save to right now, given the
+	// current config mode. -1 if the mode is Off or no valid slot exists.
+	int ResolveAutoSaveSlot(const Path &gameFilename);
 	
 	std::string GetSlotDateAsString(const Path &gameFilename, int slot);
 	std::string GenerateFullDiscId(const Path &gameFilename);
