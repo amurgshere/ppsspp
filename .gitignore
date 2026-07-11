@@ -152,3 +152,6 @@ cmake-build-*/
 
 /.vscode/
 bash.exe.stackdump
+
+# Build log scratchpad
+/ppsspp-builds/
