@@ -99,6 +99,11 @@ static void EmuThreadFunc(GraphicsContext *graphicsContext) {
 
 	g_emuThreadState = EmuThreadState::STOPPED;
 
+	// The render thread may be blocked inside ThreadFrame(true) waiting for a frame we're
+	// never going to push again now that we're exiting - wake it so MainThread_Stop's join()
+	// can't hang forever.
+	graphicsContext->StopThread();
+
 	NativeShutdownGraphics();
 }
 

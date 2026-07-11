@@ -238,6 +238,10 @@ public:
 	void ThreadEnd();
 	bool ThreadFrame(bool waitIfEmpty);  // Returns true if it did anything. False means the queue was empty.
 
+	// Wakes up a thread blocked inside ThreadFrame(true) so it can exit instead of waiting
+	// forever for a frame that will never be pushed (e.g. the producer thread is shutting down).
+	void StopThread();
+
 	void SetErrorCallback(ErrorCallbackFn callback, void *userdata) {
 		queueRunner_.SetErrorCallback(callback, userdata);
 	}
@@ -877,6 +881,7 @@ private:
 	std::condition_variable pushCondVar_;
 
 	std::queue<GLRRenderThreadTask *> renderThreadQueue_;
+	bool stopped_ = false;
 
 	// For readbacks and other reasons we need to sync with the render thread.
 	std::mutex syncMutex_;

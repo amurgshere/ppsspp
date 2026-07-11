@@ -140,6 +140,14 @@ bool GLRenderManager::ThreadFrame(bool waitIfEmpty) {
 		{
 			std::unique_lock<std::mutex> lock(pushMutex_);
 
+			if (stopped_ && renderThreadQueue_.empty()) {
+				lock.unlock();
+				std::unique_lock<std::mutex> lock(syncMutex_);
+				syncCondVar_.notify_one();
+				syncDone_ = true;
+				return false;
+			}
+
 			if (!waitIfEmpty && renderThreadQueue_.empty()) {
 				lock.unlock();
 				// Oh, host wanted out. Let's leave, and also let's notify the host.
@@ -150,7 +158,15 @@ bool GLRenderManager::ThreadFrame(bool waitIfEmpty) {
 				return false;
 			}
 
-			pushCondVar_.wait(lock, [this] { return !renderThreadQueue_.empty(); });
+			pushCondVar_.wait(lock, [this] { return !renderThreadQueue_.empty() || stopped_; });
+			if (renderThreadQueue_.empty()) {
+				// Only possible if stopped_ woke us up with nothing queued.
+				lock.unlock();
+				std::unique_lock<std::mutex> lock(syncMutex_);
+				syncCondVar_.notify_one();
+				syncDone_ = true;
+				return false;
+			}
 			task = renderThreadQueue_.front();
 			renderThreadQueue_.pop();
 		}
@@ -166,6 +182,12 @@ bool GLRenderManager::ThreadFrame(bool waitIfEmpty) {
 	};
 
 	return true;
+}
+
+void GLRenderManager::StopThread() {
+	std::unique_lock<std::mutex> lock(pushMutex_);
+	stopped_ = true;
+	pushCondVar_.notify_all();
 }
 
 void GLRenderManager::StartThread() {

@@ -33,6 +33,12 @@ public:
 	virtual bool ThreadFrame(bool waitIfEmpty) { return true; }   // waitIfEmpty should normally be true, except in exit scenarios.
 	virtual void ThreadEnd() {}
 
+	// Called from a thread OTHER than the render thread (typically the emu thread) to wake up
+	// a render thread that's blocked inside ThreadFrame(true) waiting for a frame that will
+	// never come, e.g. because the emu thread is shutting down. Safe to call even if the render
+	// thread isn't currently blocked.
+	virtual void StopThread() {}
+
 	// Useful for checks that need to be performed every frame.
 	// Should strive to get rid of these.
 	virtual void Poll() {}
