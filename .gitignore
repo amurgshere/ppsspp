@@ -155,3 +155,8 @@ bash.exe.stackdump
 
 # Build log scratchpad
 /ppsspp-builds/
+
+# Windows-build dependencies fetched as plain git checkouts rather than
+# registered submodules - not part of this repo's history either way.
+/dx9sdk/
+/ext/native/tools/prebuilt/
