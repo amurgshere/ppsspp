@@ -28,17 +28,27 @@ add_subdirectory(cmake/cpu_features EXCLUDE_FROM_ALL)
 
 set(SKIP_GLSLANG_INSTALL ON CACHE BOOL "" FORCE)
 set(ENABLE_GLSLANG_INSTALL OFF)
-if(USE_LIBNX)
-	set(_glslang_cmake "${CMAKE_CURRENT_SOURCE_DIR}/glslang/glslang/CMakeLists.txt")
-	file(READ "${_glslang_cmake}" _glslang_contents)
-	if(_glslang_contents MATCHES "OSDependent")
-		string(REPLACE "OGLCompiler OSDependent GenericCodeGen" "OGLCompiler GenericCodeGen" _glslang_contents "${_glslang_contents}")
-		string(REPLACE "OGLCompiler OSDependent MachineIndependent" "OGLCompiler MachineIndependent" _glslang_contents "${_glslang_contents}")
-		file(WRITE "${_glslang_cmake}" "${_glslang_contents}")
-		message(STATUS "Applied glslang OSDependent patch for Switch build")
-	endif()
-endif()
 add_subdirectory(glslang EXCLUDE_FROM_ALL)
+if(USE_LIBNX)
+	# The Switch toolchain doesn't need OSDependent as a separate link
+	# dependency here; drop it via target properties instead of patching
+	# glslang's own CMakeLists.txt, which would perpetually dirty the submodule.
+	foreach(_glslang_target MachineIndependent glslang)
+		get_target_property(_glslang_libs ${_glslang_target} LINK_LIBRARIES)
+		if(_glslang_libs)
+			list(REMOVE_ITEM _glslang_libs OSDependent)
+			set_target_properties(${_glslang_target} PROPERTIES LINK_LIBRARIES "${_glslang_libs}")
+		endif()
+		# STATIC libraries also propagate their PRIVATE dependencies to
+		# consumers via INTERFACE_LINK_LIBRARIES, wrapped as a generator
+		# expression rather than the bare target name - must match that form.
+		get_target_property(_glslang_iface_libs ${_glslang_target} INTERFACE_LINK_LIBRARIES)
+		if(_glslang_iface_libs)
+			list(REMOVE_ITEM _glslang_iface_libs "$<LINK_ONLY:OSDependent>")
+			set_target_properties(${_glslang_target} PROPERTIES INTERFACE_LINK_LIBRARIES "${_glslang_iface_libs}")
+		endif()
+	endforeach()
+endif()
 add_subdirectory(snappy)
 add_subdirectory(lua-build)
 add_subdirectory(minimp3)
