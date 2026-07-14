@@ -145,11 +145,50 @@ int getDisplayNumber(void) {
 	return displayNumber;
 }
 
+// Diagnostic for the Switch-specific no-sound-after-autoload bug: PPSSPP's own
+// mixing pipeline (HLE channel mix, host resampler/mix) was already confirmed
+// healthy via separate watchdogs in __sceAudio.cpp/AudioCommon.cpp, so this one
+// tracks whether the SDL audio callback is even being invoked at all - if the
+// underlying platform audio session stalls (e.g. hasn't been granted output
+// focus yet), SDL's mix thread can simply stop calling back, which those
+// in-callback watchdogs can never observe from the inside.
+static std::atomic<double> g_lastAudioCallbackTime{0.0};
+static SDL_AudioDeviceID audioDev = 0;
+
 void sdl_mixaudio_callback(void *userdata, Uint8 *stream, int len) {
+	g_lastAudioCallbackTime = time_now_d();
 	NativeMix((short *)stream, len / (2 * 2), g_sampleRate, userdata);
 }
 
-static SDL_AudioDeviceID audioDev = 0;
+// Called periodically from the main loop (not the audio thread) so a stalled
+// audio callback - one that stops firing entirely rather than firing with
+// silent data - is still detected. Logged at WARNING, transition-edge only.
+static void CheckAudioCallbackHeartbeat() {
+	constexpr double kStallThresholdSeconds = 0.5;
+	constexpr double kCheckIntervalSeconds = 1.0;
+
+	static double lastCheckTime = 0.0;
+	static bool wasStalled = false;
+
+	double now = time_now_d();
+	if (now - lastCheckTime < kCheckIntervalSeconds) {
+		return;
+	}
+	lastCheckTime = now;
+
+	if (audioDev <= 0 || g_lastAudioCallbackTime == 0.0) {
+		return;
+	}
+
+	double gap = now - g_lastAudioCallbackTime;
+	bool stalled = gap > kStallThresholdSeconds;
+	if (stalled && !wasStalled) {
+		WARN_LOG(Log::Audio, "Audio callback stalled: no callback for %.2fs (device status=%d)", gap, (int)SDL_GetAudioDeviceStatus(audioDev));
+	} else if (!stalled && wasStalled) {
+		WARN_LOG(Log::Audio, "Audio callback resumed after stalling for %.2fs", gap);
+	}
+	wasStalled = stalled;
+}
 
 // Must be called after NativeInit().
 static void InitSDLAudioDevice(const std::string &name = "") {
@@ -222,8 +261,14 @@ static void InitSDLAudioDevice(const std::string &name = "") {
 			// WARNING so it's visible without needing full INFO/NOTICE verbosity,
 			// to help diagnose intermittent no-sound-until-restart reports.
 			WARN_LOG(Log::Audio, "Audio device opened successfully: id=%d, freq=%d, samples=%d, channels=%d", (int)audioDev, g_retFmt.freq, g_retFmt.samples, g_retFmt.channels);
+			WARN_LOG(Log::Audio, "Audio driver='%s', device status after unpause=%d",
+				SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "(null)", (int)SDL_GetAudioDeviceStatus(audioDev));
+			g_lastAudioCallbackTime = 0.0;
 		}
 	}
+#if PPSSPP_PLATFORM(SWITCH)
+	WARN_LOG(Log::Audio, "__nx_applet_type=%u at audio init", __nx_applet_type);
+#endif
 }
 
 static void StopSDLAudioDevice() {
@@ -1964,6 +2009,8 @@ int main(int argc, char *argv[]) {
 		UpdateSDLCursor();
 
 		inputTracker.MouseCaptureControl();
+
+		CheckAudioCallbackHeartbeat();
 
 		bool renderThreadPaused = Native_IsWindowHidden() && g_Config.bPauseWhenMinimized && emuThreadState != (int)EmuThreadState::DISABLED;
 		if (emuThreadState != (int)EmuThreadState::DISABLED && !renderThreadPaused) {

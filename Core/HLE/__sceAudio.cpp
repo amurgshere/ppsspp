@@ -77,6 +77,33 @@ static bool m_logAudio;
 static int chanQueueMaxSizeFactor;
 static int chanQueueMinSizeFactor;
 
+// Diagnostic watchdog for intermittent no-sound reports - logs only on the
+// silent/non-silent transition edges (not every call), so it's cheap enough
+// to run at WARNING on the hot audio-update path without flooding the log.
+static void LogAudioSilenceWatchdog(bool producedSound) {
+	static int silentStreak = 0;
+	constexpr int kSilenceLogThreshold = 200; // ~ a few hundred ms of hwBlockSize updates
+
+	if (producedSound) {
+		if (silentStreak >= kSilenceLogThreshold) {
+			WARN_LOG(Log::sceAudio, "__AudioUpdate: resumed mixing audio after %d consecutive silent updates", silentStreak);
+		}
+		silentStreak = 0;
+		return;
+	}
+
+	silentStreak++;
+	if (silentStreak == kSilenceLogThreshold) {
+		int reservedCount = 0;
+		for (u32 i = 0; i < PSP_AUDIO_CHANNEL_MAX + 1; i++) {
+			if (g_audioChans[i].reserved)
+				reservedCount++;
+		}
+		WARN_LOG(Log::sceAudio, "__AudioUpdate: no channel produced audio for %d consecutive updates, reservedChannels=%d, bEnableSound=%d",
+			silentStreak, reservedCount, (int)g_Config.bEnableSound);
+	}
+}
+
 static void hleAudioUpdate(u64 userdata, int cyclesLate) {
 	// Schedule the next cycle first.  __AudioUpdate() may consume cycles.
 	CoreTiming::ScheduleEvent(audioIntervalCycles - cyclesLate, eventAudioUpdate, 0);
@@ -170,6 +197,19 @@ void __AudioDoState(PointerWrap &p) {
 	}
 
 	__AudioCPUMHzChange();
+
+	// Diagnostic for intermittent no-sound-after-autoload reports - logged at
+	// WARNING (not INFO) so it's visible without needing full verbosity. One-shot
+	// per savestate load, not a hot path.
+	if (p.mode == p.MODE_READ) {
+		int reservedCount = 0;
+		for (int i = 0; i < chanCount; ++i) {
+			if (g_audioChans[i].reserved)
+				reservedCount++;
+		}
+		WARN_LOG(Log::sceAudio, "Savestate loaded: mixFrequency=%d, srcFrequency=%d, reservedChannels=%d/%d, bEnableSound=%d, iGameVolume=%d",
+			mixFrequency, srcFrequency, reservedCount, chanCount, (int)g_Config.bEnableSound, g_Config.iGameVolume);
+	}
 }
 
 void __AudioShutdown() {
@@ -424,6 +464,7 @@ void __AudioUpdate(bool resetRecording) {
 		// Nothing was written above, let's memset.
 		memset(mixBuffer, 0, hwBlockSize * 2 * sizeof(s32));
 	}
+	LogAudioSilenceWatchdog(!firstChannel);
 
 	if (g_Config.bEnableSound) {
 		float multiplier = Volume100ToMultiplier(std::clamp(g_Config.iGameVolume, 0, VOLUMEHI_FULL));

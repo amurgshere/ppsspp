@@ -15,6 +15,9 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
+#include <algorithm>
+
+#include "Common/Log.h"
 #include "Common/System/System.h"
 #include "Core/Config.h"
 #include "Core/HW/StereoResampler.h"  // TODO: doesn't belong in Core/HW...
@@ -25,6 +28,35 @@
 
 StereoResampler g_resampler;
 GranularMixer g_granular;
+
+// Diagnostic watchdog for intermittent no-sound reports - logs only on the
+// silent/non-silent transition edges of the final host mix output (not every
+// callback), so it's cheap enough to run at WARNING without flooding the log.
+// Distinguishes "the HLE audio system never produced samples" from "it did,
+// but the final host-side mix came out silent anyway".
+static void LogHostMixSilenceWatchdog(const int16_t *outStereo, int numFrames) {
+	static int silentStreak = 0;
+	constexpr int kSilenceLogThreshold = 200; // ~ a few hundred callbacks
+
+	bool silent = true;
+	for (int i = 0; i < numFrames * 2 && silent; i++) {
+		if (outStereo[i] != 0)
+			silent = false;
+	}
+
+	if (!silent) {
+		if (silentStreak >= kSilenceLogThreshold) {
+			WARN_LOG(Log::Audio, "NativeMix: host mix output resumed after %d consecutive silent callbacks", silentStreak);
+		}
+		silentStreak = 0;
+		return;
+	}
+
+	silentStreak++;
+	if (silentStreak == kSilenceLogThreshold) {
+		WARN_LOG(Log::Audio, "NativeMix: host mix output has been silent for %d consecutive callbacks", silentStreak);
+	}
+}
 
 // numFrames is number of stereo frames.
 // This is called from *outside* the emulator thread.
@@ -42,6 +74,7 @@ void NativeMix(int16_t *outStereo, int numFrames, int sampleRateHz, void *userda
 		g_resampler.Mix(outStereo, numFrames, false, sampleRateHz);
 	}
 	g_BackgroundAudio.SFX().Mix(outStereo, numFrames, sampleRateHz);
+	LogHostMixSilenceWatchdog(outStereo, numFrames);
 }
 
 void System_AudioGetDebugStats(char *buf, size_t bufSize) {
