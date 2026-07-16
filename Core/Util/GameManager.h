@@ -88,6 +88,11 @@ public:
 	// Separate kind of functionality from InstallZipOnThread, so doesn't re-use the task struct.
 	bool UninstallGameOnThread(const std::string &name);
 
+	// Synchronous, blocking PARAM.SFO read - unlike GameInfoCache's id, which
+	// loads asynchronously in a background thread and isn't available for a
+	// read-it-right-away use (like keying a per-game settings lookup off it).
+	std::string GetGameID(const Path &path) const;
+
 private:
 	void InstallZipContents(ZipFileTask task);
 
@@ -105,7 +110,6 @@ private:
 	bool InstallInProgress() const { return installThread_.joinable(); }
 
 	Path GetTempFilename() const;
-	std::string GetGameID(const Path &path) const;
 	std::string GetPBPGameID(FileLoader *loader) const;
 	std::string GetISOGameID(FileLoader *loader) const;
 	std::shared_ptr<http::Request> curDownload_;

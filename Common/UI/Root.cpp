@@ -263,10 +263,10 @@ bool KeyEvent(const KeyInput &key, ViewGroup *root) {
 	return root->Key(key);
 }
 
-void TouchEvent(const TouchInput &touch, ViewGroup *root) {
+void TouchEvent(const TouchInput &touch, ViewGroup *root, bool disableFocusMovementOnTouch) {
 	focusForced = false;
 	root->Touch(touch);
-	if ((touch.flags & TOUCH_DOWN) && !focusForced) {
+	if ((touch.flags & TOUCH_DOWN) && !focusForced && disableFocusMovementOnTouch) {
 		EnableFocusMovement(false);
 	}
 }

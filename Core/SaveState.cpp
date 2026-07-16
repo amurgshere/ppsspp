@@ -842,15 +842,15 @@ static int g_lastSessionSlot = -1;
 		return oldestSlot;
 	}
 
-	bool HasNewerGameSaveThanSlot(const Path &gameFilename, const std::string &gameID, int slot) {
-		Path stateFn = GenerateSaveSlotFilename(gameFilename, slot, STATE_EXTENSION);
-		File::FileInfo stateInfo;
-		if (!File::GetFileInfo(stateFn, &stateInfo))
-			return false;
+	// Shortest real ID is a 4-letter publisher code plus at least one digit (e.g. "ULUS10000").
+	constexpr size_t kMinPlausibleGameIDLength = 5;
 
-		if (gameID.size() < 5) {
-			// Invalid game ID - can't find its save directories.
-			return false;
+	// Walks every file under gameID's in-game (non-savestate) save directories,
+	// calling visit(fileInfo) for each. No-op if gameID doesn't look plausible.
+	template <typename Visitor>
+	void ForEachGameSaveFile(const std::string &gameID, Visitor visit) {
+		if (gameID.size() < kMinPlausibleGameIDLength) {
+			return;
 		}
 
 		Path memc = GetSysDirectory(DIRECTORY_SAVEDATA);
@@ -862,12 +862,35 @@ static int g_lastSessionSlot = -1;
 				continue;
 			std::vector<File::FileInfo> files;
 			File::GetFilesInDir(dir.fullName, &files);
-			for (const auto &f : files) {
-				if (f.mtime > stateInfo.mtime)
-					return true;
-			}
+			for (const auto &f : files)
+				visit(f);
 		}
-		return false;
+	}
+
+	bool HasNewerGameSaveThanSlot(const Path &gameFilename, const std::string &gameID, int slot) {
+		Path stateFn = GenerateSaveSlotFilename(gameFilename, slot, STATE_EXTENSION);
+		File::FileInfo stateInfo;
+		if (!File::GetFileInfo(stateFn, &stateInfo))
+			return false;
+
+		bool foundNewer = false;
+		ForEachGameSaveFile(gameID, [&](const File::FileInfo &f) {
+			if (f.mtime > stateInfo.mtime)
+				foundNewer = true;
+		});
+		return foundNewer;
+	}
+
+	Path GetNewestGameSaveFile(const std::string &gameID) {
+		Path newestPath;
+		uint64_t newestMtime = 0;
+		ForEachGameSaveFile(gameID, [&](const File::FileInfo &f) {
+			if (f.mtime > newestMtime) {
+				newestMtime = f.mtime;
+				newestPath = f.fullName;
+			}
+		});
+		return newestPath;
 	}
 
 	int ResolveAutoSaveSlot(const Path &gameFilename) {

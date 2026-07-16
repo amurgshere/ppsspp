@@ -847,7 +847,9 @@ void GamePauseScreen::ShowContextMenu(UI::View *menuButton, bool portrait) {
 }
 
 void GamePauseScreen::OnGameSettings(UI::EventParams &e) {
-	screenManager()->push(new GameSettingsScreen(gamePath_));
+	std::string gameId = g_paramSFO.IsValid() ? g_paramSFO.GetDiscID() : "";
+	bool hasConfig = !gameId.empty() && g_Config.HasGameConfig(gameId);
+	screenManager()->push(new GameSettingsScreen(gamePath_, gameId, hasConfig));
 }
 
 void GamePauseScreen::OnState(UI::EventParams &e) {

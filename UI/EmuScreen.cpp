@@ -85,6 +85,7 @@ using namespace std::placeholders;
 #include "UI/GamepadEmu.h"
 #include "UI/PauseScreen.h"
 #include "UI/MainScreen.h"
+#include "UI/Kiosk/KioskCarouselScreen.h"
 #include "UI/Background.h"
 #include "UI/EmuScreen.h"
 #include "UI/DevScreens.h"
@@ -176,6 +177,14 @@ EmuScreen::EmuScreen(const Path &filename, bool skipAutoLoad)
 	UI::EnableFocusMovement(false);
 }
 
+static void SwitchToLauncherScreen(ScreenManager *screenManager) {
+	if (g_Config.bKioskModeActive) {
+		screenManager->switchScreen(new KioskCarouselScreen());
+	} else {
+		screenManager->switchScreen(new MainScreen());
+	}
+}
+
 bool EmuScreen::bootAllowStorage(const Path &filename) {
 	// No permissions needed.  The easy life.
 	if (filename.Type() == PathType::HTTP)
@@ -192,7 +201,7 @@ bool EmuScreen::bootAllowStorage(const Path &filename) {
 
 	case PERMISSION_STATUS_DENIED:
 		if (!bootPending_) {
-			screenManager()->switchScreen(new MainScreen());
+			SwitchToLauncherScreen(screenManager());
 		}
 		return false;
 
@@ -491,7 +500,7 @@ void EmuScreen::dialogFinished(const Screen *dialog, DialogResult result) {
 	// DR_CANCEL/DR_BACK means clicked on "continue", DR_OK means clicked on "back to menu",
 	// DR_YES means a message sent to PauseMenu by System_PostUIMessage.
 	if ((result == DR_OK || quit_) && !bootPending_) {
-		screenManager()->switchScreen(new MainScreen());
+		SwitchToLauncherScreen(screenManager());
 		quit_ = false;
 	} else {
 		RecreateViews();
@@ -540,7 +549,7 @@ void EmuScreen::sendMessage(UIMessage message, const char *value) {
 			return;
 		}
 		// The destructor will take care of shutting down.
-		screenManager()->switchScreen(new MainScreen());
+		SwitchToLauncherScreen(screenManager());
 	} else if (message == UIMessage::REQUEST_GAME_RESET) {
 		if (bootPending_) {
 			WARN_LOG(Log::Loader, "Can't reset during a pending boot");
@@ -556,7 +565,7 @@ void EmuScreen::sendMessage(UIMessage message, const char *value) {
 		if (!PSP_InitStart(PSP_CoreParameter())) {
 			bootPending_ = false;
 			WARN_LOG(Log::Loader, "Error resetting");
-			screenManager()->switchScreen(new MainScreen());
+			SwitchToLauncherScreen(screenManager());
 			return;
 		}
 	} else if (message == UIMessage::REQUEST_GAME_BOOT) {
@@ -1562,7 +1571,7 @@ bool EmuScreen::checkPowerDown() {
 	// Also for REQUEST_STOP.
 	if (coreState == CORE_POWERDOWN && PSP_GetBootState() == BootState::Complete && !bootPending_) {
 		INFO_LOG(Log::System, "SELF-POWERDOWN!");
-		screenManager()->switchScreen(new MainScreen());
+		SwitchToLauncherScreen(screenManager());
 		return true;
 	}
 	return false;
@@ -1830,7 +1839,7 @@ ScreenRenderFlags EmuScreen::render(ScreenRenderMode mode) {
 			if (!PSP_InitStart(PSP_CoreParameter())) {
 				bootPending_ = false;
 				WARN_LOG(Log::Loader, "Error resetting");
-				screenManager()->switchScreen(new MainScreen());
+				SwitchToLauncherScreen(screenManager());
 			}
 		}
 	}

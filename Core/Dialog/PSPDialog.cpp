@@ -34,7 +34,7 @@
 
 #define FADE_TIME 1.0
 
-constexpr float FONT_SCALE = 0.55f;
+constexpr float FONT_SCALE = 0.5f;
 
 const char *UtilityDialogTypeToString(UtilityDialogType type) {
 	switch (type) {
@@ -325,7 +325,7 @@ void PSPDialog::DisplayButtons(int flags, std::string_view caption) {
 		truncate_cpy(safeCaption, sizeof(safeCaption), caption);
 	}
 
-	PPGeStyle textStyle = FadedStyle(PPGeAlign::BOX_LEFT, FONT_SCALE);
+	PPGeStyle textStyle = FadedStyle(PPGeAlign::BOX_LEFT | PPGeAlign::BOX_VCENTER, FONT_SCALE);
 
 	auto di = GetI18NCategory(I18NCat::DIALOG);
 	float x1 = 183.5f, x2 = 261.5f;
@@ -339,15 +339,23 @@ void PSPDialog::DisplayButtons(int flags, std::string_view caption) {
 		x1 = 261.5f;
 		x2 = 183.5f;
 	}
+
+	// Text is vertically centered against the icon's own bounds rather than a
+	// fixed y offset, so it stays aligned regardless of the active font's metrics.
+	constexpr float kButtonIconSize = 11.5f;
+	constexpr float kButtonIconY = 256.0f;
+	constexpr float kButtonTextGap = 14.5f;
+	const float buttonIconCenterY = kButtonIconY + kButtonIconSize / 2.0f;
+
 	if (flags & DS_BUTTON_OK) {
 		std::string_view text = useCaption ? safeCaption : di->T("Enter");
-		PPGeDrawImage(okButtonImg, x2, 256, 11.5f, 11.5f, textStyle);
-		PPGeDrawText(text, x2 + 14.5f, 252, textStyle);
+		PPGeDrawImage(okButtonImg, x2, kButtonIconY, kButtonIconSize, kButtonIconSize, textStyle);
+		PPGeDrawText(text, x2 + kButtonTextGap, buttonIconCenterY, textStyle);
 	}
 	if (flags & DS_BUTTON_CANCEL) {
 		std::string_view text = useCaption ? safeCaption : di->T("Back");
-		PPGeDrawImage(cancelButtonImg, x1, 256, 11.5f, 11.5f, textStyle);
-		PPGeDrawText(text, x1 + 14.5f, 252, textStyle);
+		PPGeDrawImage(cancelButtonImg, x1, kButtonIconY, kButtonIconSize, kButtonIconSize, textStyle);
+		PPGeDrawText(text, x1 + kButtonTextGap, buttonIconCenterY, textStyle);
 	}
 }
 

@@ -46,9 +46,14 @@ protected:
 
 	void CreateTabs() override;
 	bool ShowSearchControls() const override { return true; }
+	void CreateExtraButtons(UI::ViewGroup *verticalLayout, int margins) override;
+	void PostProcessTabContents(UI::ViewGroup *contents) override;
 
 private:
 	void PreCreateViews() override;
+
+	void OnDeleteGameConfig(UI::EventParams &e);
+	void OnCreateGameConfig(UI::EventParams &e);
 
 	void CreateGraphicsSettings(UI::ViewGroup *graphicsSettings);
 	void CreateControlsSettings(UI::ViewGroup *tools);

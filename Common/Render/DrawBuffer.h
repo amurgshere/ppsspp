@@ -78,7 +78,6 @@ public:
 	void RectVDarkFaded(float x, float y, float w, float h, uint32_t colorTop) {
 		RectVGradient(x, y, x + w, y + h, colorTop, darkenColor(colorTop));
 	}
-
 	void MultiVGradient(float x, float y, float w, float h, const GradientStop *stops, int numStops);
 
 	void RectCenter(float x, float y, float w, float h, uint32_t color) {
@@ -122,6 +121,7 @@ public:
 	void DrawTexRect(const Bounds &bounds, float u1, float v1, float u2, float v2, Color color) {
 		DrawTexRect(bounds.x, bounds.y, bounds.x2(), bounds.y2(), u1, v1, u2, v2, color);
 	}
+	void DrawTexRectRotatedAboutCenter(const Bounds &bounds, float u1, float v1, float u2, float v2, float angleRadians, Color color);
 	// Results in 18 triangles. Kind of expensive for a button.
 	void DrawImage4Grid(ImageID atlas_image, float x1, float y1, float x2, float y2, Color color = COLOR(0xFFFFFF), float corner_scale = 1.0);
 	// This is only 6 triangles, much cheaper.

@@ -614,12 +614,12 @@ void LinearLayout::Measure(const UIContext &dc, MeasureSpec horiz, MeasureSpec v
 				MeasureSpec v = vert;
 				if (v.type == UNSPECIFIED && measuredHeight_ != 0.0f)
 					v = MeasureSpec(AT_MOST, measuredHeight_);
-				float unit = (allowedWidth - weightZeroSum) / weightSum;
+				float unit = std::max(0.0f, allowedWidth - weightZeroSum) / weightSum;
 				if (weightSum == 0.0f) {
 					// We must have gotten an inf.
 					unit = 1.0f;
 				}
-				MeasureSpec h(AT_MOST, unit * linLayoutParams->weight - margins.horiz());
+				MeasureSpec h(AT_MOST, std::max(0.0f, unit * linLayoutParams->weight - margins.horiz()));
 				if (horiz.type == EXACTLY) {
 					h.type = EXACTLY;
 				}
@@ -662,12 +662,12 @@ void LinearLayout::Measure(const UIContext &dc, MeasureSpec horiz, MeasureSpec v
 				MeasureSpec h = horiz;
 				if (h.type == UNSPECIFIED && measuredWidth_ != 0.0f)
 					h = MeasureSpec(AT_MOST, measuredWidth_);
-				float unit = (allowedHeight - weightZeroSum) / weightSum;
+				float unit = std::max(0.0f, allowedHeight - weightZeroSum) / weightSum;
 				if (weightSum == 0.0f) {
 					// We must have gotten an inf.
 					unit = 1.0f;
 				}
-				MeasureSpec v(AT_MOST, unit * linLayoutParams->weight - margins.vert());
+				MeasureSpec v(AT_MOST, std::max(0.0f, unit * linLayoutParams->weight - margins.vert()));
 				if (vert.type == EXACTLY) {
 					v.type = EXACTLY;
 				}
@@ -929,6 +929,13 @@ void GridLayout::Layout() {
 	int y = 0;
 	int x = 0;
 	int count = 0;
+
+	int startX = 0;
+	if (settings_.centerContent) {
+		int contentW = numColumns_ * (settings_.columnWidth + settings_.spacing) - settings_.spacing;
+		startX = std::max(0, (int)(bounds_.w - contentW) / 2);
+	}
+
 	for (size_t i = 0; i < views_.size(); i++) {
 		if (views_[i]->GetVisibility() == V_GONE)
 			continue;
@@ -937,7 +944,7 @@ void GridLayout::Layout() {
 		Bounds itemBounds, innerBounds;
 		Gravity grav = lp ? lp->gravity : Gravity::G_CENTER;
 
-		itemBounds.x = bounds_.x + x;
+		itemBounds.x = bounds_.x + startX + x;
 		itemBounds.y = bounds_.y + y;
 		itemBounds.w = settings_.columnWidth;
 		itemBounds.h = settings_.rowHeight;

@@ -60,7 +60,7 @@ double SecondsSinceLastGameSave() {
 	}
 }
 
-const static float FONT_SCALE = 0.55f;
+const static float FONT_SCALE = 0.5f;
 
 // These are rough, it seems to take at least 100ms or so to init, and shutdown depends on threads.
 // Some games seem to required slightly longer delays to work, so we try 200ms as a compromise.
@@ -525,20 +525,35 @@ static void FormatSaveDate(char *date, size_t sz, const tm &t) {
 	}
 }
 
+// Text height above/below the divider is now measured per-string from actual rendered
+// glyph extents (see TextDrawerSwitch), so a descender-free string like "LocoRoco" has
+// near-zero measured descent and its BOX_BOTTOM-anchored baseline lands right on the
+// divider instead of a few pixels above it, as the old fixed-metric atlas font always
+// guaranteed. These clearances add that margin back explicitly instead of relying on
+// the font's per-string box height to provide it.
+constexpr float kSaveInfoTitleScale = 0.52f;
+constexpr float kSaveInfoSaveTitleScale = 0.48f;
+constexpr float kSaveInfoDetailScale = 0.44f;
+constexpr float kSaveInfoDividerY = 136.0f;
+constexpr float kSaveInfoTitleClearance = 4.0f;
+constexpr float kSaveInfoMetaClearance = 5.0f;
+constexpr float kSaveInfoSaveTitleY = 163.0f;
+constexpr float kSaveInfoDetailY = 185.0f;
+
 void PSPSaveDialog::DisplaySaveDataInfo1() {
 	std::lock_guard<std::mutex> guard(paramLock);
 	const SaveFileInfo &saveInfo = param.GetFileInfo(currentSelectedSave);
-	PPGeStyle saveTitleStyle = FadedStyle(PPGeAlign::BOX_LEFT, 0.55f);
+	PPGeStyle saveTitleStyle = FadedStyle(PPGeAlign::BOX_LEFT, kSaveInfoSaveTitleScale);
 
 	if (saveInfo.broken) {
 		auto di = GetI18NCategory(I18NCat::DIALOG);
-		PPGeStyle textStyle = FadedStyle(PPGeAlign::BOX_VCENTER, 0.6f);
-		PPGeDrawText(di->T("Corrupted Data"), 180, 136, textStyle);
-		PPGeDrawText(saveInfo.title, 175, 159, saveTitleStyle);
+		PPGeStyle textStyle = FadedStyle(PPGeAlign::BOX_VCENTER, kSaveInfoTitleScale);
+		PPGeDrawText(di->T("Corrupted Data"), 180, kSaveInfoDividerY, textStyle);
+		PPGeDrawText(saveInfo.title, 175, kSaveInfoSaveTitleY, saveTitleStyle);
 	} else if (saveInfo.size == 0) {
 		auto di = GetI18NCategory(I18NCat::DIALOG);
-		PPGeStyle textStyle = FadedStyle(PPGeAlign::BOX_VCENTER, 0.6f);
-		PPGeDrawText(di->T("NEW DATA"), 180, 136, textStyle);
+		PPGeStyle textStyle = FadedStyle(PPGeAlign::BOX_VCENTER, kSaveInfoTitleScale);
+		PPGeDrawText(di->T("NEW DATA"), 180, kSaveInfoDividerY, textStyle);
 	} else {
 		char hour_time[32];
 		FormatSaveHourMin(hour_time, sizeof(hour_time), saveInfo.modif_time);
@@ -548,20 +563,20 @@ void PSPSaveDialog::DisplaySaveDataInfo1() {
 
 		s64 sizeK = saveInfo.size / 1024;
 
-		PPGeDrawRect(180, 136, 480, 137, CalcFadedColor(0xFFFFFFFF));
+		PPGeDrawRect(180, kSaveInfoDividerY, 480, kSaveInfoDividerY + 1.0f, CalcFadedColor(0xFFFFFFFF));
 		std::string titleTxt = saveInfo.title;
 		std::string timeTxt = StringFromFormat("%s   %s  %lld KB", date_year, hour_time, sizeK);
 		std::string saveTitleTxt = saveInfo.saveTitle;
 		std::string saveDetailTxt = saveInfo.saveDetail;
 
-		PPGeStyle titleStyle = FadedStyle(PPGeAlign::BOX_BOTTOM, 0.6f);
+		PPGeStyle titleStyle = FadedStyle(PPGeAlign::BOX_BOTTOM, kSaveInfoTitleScale);
 		titleStyle.color = CalcFadedColor(0xFFC0C0C0);
-		PPGeStyle textStyle = FadedStyle(PPGeAlign::BOX_LEFT, 0.5f);
+		PPGeStyle textStyle = FadedStyle(PPGeAlign::BOX_LEFT, kSaveInfoDetailScale);
 
-		PPGeDrawText(titleTxt, 180, 136, titleStyle);
-		PPGeDrawText(timeTxt, 180, 137, textStyle);
-		PPGeDrawText(saveTitleTxt, 175, 159, saveTitleStyle);
-		PPGeDrawTextWrapped(saveDetailTxt, 175, 181, 480 - 175, 250 - 181, textStyle);
+		PPGeDrawText(titleTxt, 180, kSaveInfoDividerY - kSaveInfoTitleClearance, titleStyle);
+		PPGeDrawText(timeTxt, 180, kSaveInfoDividerY + kSaveInfoMetaClearance, textStyle);
+		PPGeDrawText(saveTitleTxt, 175, kSaveInfoSaveTitleY, saveTitleStyle);
+		PPGeDrawTextWrapped(saveDetailTxt, 175, kSaveInfoDetailY, 480 - 175, 250 - kSaveInfoDetailY, textStyle);
 	}
 }
 

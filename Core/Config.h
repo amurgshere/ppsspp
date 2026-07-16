@@ -57,6 +57,7 @@ public:
 	void Save(Section *section);
 
 	bool GetPlayedTimeString(const std::string &gameId, std::string *str) const;
+	bool GetPlayTime(const std::string &gameId, PlayTime *out) const;
 
 private:
 	std::map<std::string, PlayTime> tracker_;
@@ -175,6 +176,11 @@ public:
 	int iLogOutputTypes;  // enum class LogOutput
 	int iDumpFileTypes;  // DumpFileType bitflag enum
 	bool bFullscreenOnDoubleclick;
+	bool bKioskModeDefault;  // launch straight into Kiosk Mode (gamepad-first game picker) instead of MainScreen
+	int iKioskRecentRomsCount;  // how many recent ROMs the Kiosk carousel shows (5-20, default 10)
+	bool bKioskDisplayOnlyRecentRoms;  // if true, never pad the Kiosk carousel with unplayed ROMs
+	int iKioskGridSortField;  // KioskSortField enum value (0=LAST_USED, 1=ALPHABETICAL, 2=TIME_PLAYED); All ROMs grid's remembered sort field
+	bool bKioskGridSortAscending;  // All ROMs grid's remembered sort direction
 
 	// These four are Win UI only
 	bool bPauseOnLostFocus;
@@ -187,6 +193,7 @@ public:
 	bool bPauseExitsEmulator;
 	bool bPauseMenuExitsEmulator;
 	bool bLoadedViaDirectLaunch;
+	bool bKioskModeActive;  // true whenever Kiosk Mode was actually entered this session (--kiosk or bKioskModeDefault); used to route "exit game" back to the carousel instead of MainScreen
 
 	bool bRunBehindPauseMenu;
 
@@ -697,6 +704,7 @@ public:
 	void UnloadGameConfig();
 
 	bool HasGameConfig(std::string_view gameId);
+
 	bool IsGameSpecific() const { return !gameId_.empty(); }
 
 	void SetSearchPath(const Path &path);

@@ -19,7 +19,7 @@ void UITabbedBaseDialogScreen::AddTab(const char *tag, std::string_view title, I
 	TabDialogFlags dialogFlags = flags_;
 	Path gamePath = gamePath_;
 	std::string cachedTitle(title);
-	tabHolder_->AddTabDeferred(title, imageId, [createCallback = std::move(createCallback), tag, flags, dialogFlags, gamePath, cachedTitle]() -> UI::ViewGroup * {
+	tabHolder_->AddTabDeferred(title, imageId, [this, createCallback = std::move(createCallback), tag, flags, dialogFlags, gamePath, cachedTitle]() -> UI::ViewGroup * {
 		using namespace UI;
 		ViewGroup *scroll = nullptr;
 		if (!(flags & TabFlags::NonScrollable)) {
@@ -35,6 +35,7 @@ void UITabbedBaseDialogScreen::AddTab(const char *tag, std::string_view title, I
 		}
 
 		createCallback(contents);
+		PostProcessTabContents(contents);
 		if (scroll) {
 			scroll->Add(contents);
 			return scroll;

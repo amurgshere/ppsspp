@@ -14,6 +14,7 @@
 #include "Common/Render/Text/draw_text_qt.h"
 #include "Common/Render/Text/draw_text_android.h"
 #include "Common/Render/Text/draw_text_sdl.h"
+#include "Common/Render/Text/draw_text_switch.h"
 #include "Common/StringUtils.h"
 
 TextDrawer::TextDrawer(Draw::DrawContext *draw) : draw_(draw) {
@@ -43,7 +44,7 @@ float TextDrawer::CalculateDPIScale() const {
 	return g_display.dpi_scale_y;
 }
 
-void TextDrawer::DrawString(DrawBuffer &target, std::string_view str, float x, float y, uint32_t color, int align) {
+void TextDrawer::DrawString(DrawBuffer &target, std::string_view str, float x, float y, uint32_t color, int align, float angle) {
 	using namespace Draw;
 	if (str.empty()) {
 		return;
@@ -115,7 +116,11 @@ void TextDrawer::DrawString(DrawBuffer &target, std::string_view str, float x, f
 	float v = (float)entry->height / (float)entry->bmHeight;
 	DrawBuffer::DoAlign(align, &x, &y, &w, &h);
 
-	target.DrawTexRect(x, y, x + w, y + h, 0.0f, 0.0f, u, v, color);
+	if (angle == 0.0f) {
+		target.DrawTexRect(x, y, x + w, y + h, 0.0f, 0.0f, u, v, color);
+	} else {
+		target.DrawTexRectRotatedAboutCenter(Bounds(x, y, w, h), 0.0f, 0.0f, u, v, angle, color);
+	}
 	target.Flush(true);
 }
 
@@ -164,7 +169,7 @@ void TextDrawer::MeasureStringRect(std::string_view str, float maxWidth, float *
 	}
 }
 
-void TextDrawer::DrawStringRect(DrawBuffer &target, std::string_view str, const Bounds &bounds, uint32_t color, int align) {
+void TextDrawer::DrawStringRect(DrawBuffer &target, std::string_view str, const Bounds &bounds, uint32_t color, int align, float angle) {
 	if (bounds.w < 0.0f || bounds.h < 0.0f) {
 		return;
 	}
@@ -187,7 +192,7 @@ void TextDrawer::DrawStringRect(DrawBuffer &target, std::string_view str, const 
 		WrapString(toDraw, str, bounds.w, wrap);
 	}
 
-	DrawString(target, toDraw, x, y, color, align);
+	DrawString(target, toDraw, x, y, color, align, angle);
 }
 
 bool TextDrawer::DrawStringBitmapRect(std::vector<uint8_t> &bitmapData, TextStringEntry &entry, Draw::DataFormat texFormat, std::string_view str, const Bounds &bounds, int align, bool fullColor) {
@@ -264,6 +269,8 @@ TextDrawer *TextDrawer::Create(Draw::DrawContext *draw) {
 	drawer = new TextDrawerQt(draw);
 #elif PPSSPP_PLATFORM(ANDROID)
 	drawer = new TextDrawerAndroid(draw);
+#elif PPSSPP_PLATFORM(SWITCH)
+	drawer = new TextDrawerSwitch(draw);
 #elif USE_SDL2_TTF
 	drawer = new TextDrawerSDL(draw);
 #endif

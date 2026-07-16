@@ -408,6 +408,33 @@ void DrawBuffer::DrawTexRect(float x1, float y1, float x2, float y2, float u1, f
 	V(x1,	y2, color, u1, v2);
 }
 
+void DrawBuffer::DrawTexRectRotatedAboutCenter(const Bounds &bounds, float u1, float v1, float u2, float v2, float angleRadians, Color color) {
+	if (angleRadians == 0.0f) {
+		DrawTexRect(bounds, u1, v1, u2, v2, color);
+		return;
+	}
+	float v[6][2] = {
+		{bounds.x, bounds.y},
+		{bounds.x2(), bounds.y},
+		{bounds.x2(), bounds.y2()},
+		{bounds.x, bounds.y},
+		{bounds.x2(), bounds.y2()},
+		{bounds.x, bounds.y2()},
+	};
+	const float uv[6][2] = {
+		{u1, v1},
+		{u2, v1},
+		{u2, v2},
+		{u1, v1},
+		{u2, v2},
+		{u1, v2},
+	};
+	for (int i = 0; i < 6; i++) {
+		rot(v[i], angleRadians, bounds.centerX(), bounds.centerY());
+		V(v[i][0], v[i][1], 0, color, uv[i][0], uv[i][1]);
+	}
+}
+
 void DrawBuffer::DrawImage4Grid(ImageID atlas_image, float x1, float y1, float x2, float y2, Color color, float corner_scale) {
 	const AtlasImage *image = atlas->getImage(atlas_image);
 

@@ -65,6 +65,8 @@ protected:
 	void RecreateViews() override { recreateViews_ = true; }
 	DeviceOrientation GetDeviceOrientation() const;
 
+	virtual bool TouchDisablesFocusMovement() const { return true; }
+
 	UI::ViewGroup *root_ = nullptr;
 	Vec3 translation_ = Vec3(0.0f);
 	Vec3 scale_ = Vec3(1.0f);

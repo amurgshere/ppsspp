@@ -286,6 +286,8 @@ public:
 
 	void Update() override;
 
+	const void *ConfigValuePtr() const override { return displayValue_; }
+
 	void HideChoice(int c) {
 		hidden_.insert(c);
 	}
@@ -308,14 +310,14 @@ public:
 protected:
 	std::string ValueText() const override;
 	ImageID ValueImage() const override {
-		auto iter = icons_.find(*value_);
+		auto iter = icons_.find(*displayValue_);
 		if (iter != icons_.end()) {
 			return iter->second;
 		}
 		return ImageID::invalid();
 	}
 
-	int *value_;
+	int *displayValue_;
 	const char **choices_;
 	int minVal_;
 	int numChoices_;
@@ -360,7 +362,7 @@ public:
 			if (*value == choices_[i])
 				valueInt_ = i;
 		}
-		value_ = &valueInt_;
+		displayValue_ = &valueInt_;
 		if (values) {
 			choiceValues_ = *values;
 		}
@@ -372,6 +374,9 @@ public:
 		}
 		delete[] choices_;
 	}
+
+public:
+	const void *ConfigValuePtr() const override { return valueStr_; }
 
 protected:
 	bool PostChoiceCallback(int num) override {
@@ -401,6 +406,8 @@ class PopupSliderChoice : public AbstractChoiceWithValueDisplay {
 public:
 	PopupSliderChoice(int *value, int minValue, int maxValue, int defaultValue, std::string_view text, ScreenManager *screenManager, std::string_view units = "", LayoutParams *layoutParams = 0);
 	PopupSliderChoice(int *value, int minValue, int maxValue, int defaultValue, std::string_view text, int step, ScreenManager *screenManager, std::string_view units = "", LayoutParams *layoutParams = 0);
+
+	const void *ConfigValuePtr() const override { return value_; }
 
 	void SetFormat(std::string_view fmt);
 	void SetZeroLabel(std::string_view str) {
@@ -446,6 +453,8 @@ class PopupSliderChoiceFloat : public AbstractChoiceWithValueDisplay {
 public:
 	PopupSliderChoiceFloat(float *value, float minValue, float maxValue, float defaultValue, std::string_view text, ScreenManager *screenManager, std::string_view units = "", LayoutParams *layoutParams = 0);
 	PopupSliderChoiceFloat(float *value, float minValue, float maxValue, float defaultValue, std::string_view text, float step, ScreenManager *screenManager, std::string_view units = "", LayoutParams *layoutParams = 0);
+
+	const void *ConfigValuePtr() const override { return value_; }
 
 	void SetFormat(std::string_view fmt);
 	void SetZeroLabel(const std::string &str) {

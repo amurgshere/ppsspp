@@ -311,7 +311,7 @@ std::string ChopTitle(const std::string &title) {
 
 PopupMultiChoice::PopupMultiChoice(int *value, std::string_view text, const char **choices, int minVal, int numChoices,
 	I18NCat category, ScreenManager *screenManager, UI::LayoutParams *layoutParams)
-	: AbstractChoiceWithValueDisplay(text, layoutParams), value_(value), choices_(choices), minVal_(minVal), numChoices_(numChoices), category_(category), screenManager_(screenManager) {
+	: AbstractChoiceWithValueDisplay(text, layoutParams), displayValue_(value), choices_(choices), minVal_(minVal), numChoices_(numChoices), category_(category), screenManager_(screenManager) {
 	if (choices) {
 		// If choices is nullptr, we're being called from PopupMultiChoiceDynamic where value doesn't yet point to anything valid.
 		if (*value >= numChoices + minVal)
@@ -338,7 +338,7 @@ void PopupMultiChoice::HandleClick(UI::EventParams &e) {
 		choices.push_back(category ? std::string(category->T(choices_[i])) : std::string(choices_[i]));
 	}
 
-	ListPopupScreen *popupScreen = new ListPopupScreen(ChopTitle(text_), choices, *value_ - minVal_, [this](int num) {ChoiceCallback(num);});
+	ListPopupScreen *popupScreen = new ListPopupScreen(ChopTitle(text_), choices, *displayValue_ - minVal_, [this](int num) {ChoiceCallback(num);});
 	popupScreen->SetHiddenChoices(hidden_);
 	popupScreen->SetChoiceIcons(icons_);
 	if (e.v)
@@ -353,7 +353,7 @@ void PopupMultiChoice::Update() {
 void PopupMultiChoice::UpdateText() {
 	if (!choices_)
 		return;
-	int index = *value_ - minVal_;
+	int index = *displayValue_ - minVal_;
 	if (index < 0 || index >= numChoices_) {
 		valueText_ = "(invalid choice)";  // Shouldn't happen. Should be no need to translate this.
 	} else {
@@ -367,9 +367,9 @@ void PopupMultiChoice::UpdateText() {
 
 void PopupMultiChoice::ChoiceCallback(int num) {
 	if (num != -1) {
-		_assert_(value_ != nullptr);
+		_assert_(displayValue_ != nullptr);
 
-		*value_ = num + minVal_;
+		*displayValue_ = num + minVal_;
 		UpdateText();
 
 		UI::EventParams e{};

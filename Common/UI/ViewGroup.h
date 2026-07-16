@@ -44,6 +44,8 @@ public:
 
 	void Draw(UIContext &dc) override;
 
+	ViewGroup *AsViewGroup() override { return this; }
+
 	// Takes ownership! DO NOT add a view to multiple parents!
 	template <class T>
 	T *Add(T *view) {
@@ -233,6 +235,10 @@ struct GridLayoutSettings {
 	int rowHeight;
 	int spacing;
 	bool fillCells;
+	// Centers the block of columns that actually fit within the available
+	// width, instead of leaving unused space on the right - off by default,
+	// existing users of GridLayout keep their current left-aligned behavior.
+	bool centerContent = false;
 };
 
 class GridLayoutParams : public LayoutParams {

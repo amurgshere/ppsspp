@@ -382,6 +382,11 @@ public:
 	virtual void FocusChanged(int focusFlags) {}
 	virtual void PersistData(PersistStatus status, std::string anonId, PersistMap &storage);
 
+	// RTTI is off in this build, so callers can't dynamic_cast to find these.
+	virtual const void *ConfigValuePtr() const { return nullptr; }
+	virtual void AppendToLabel(std::string_view suffix) {}
+	virtual ViewGroup *AsViewGroup() { return nullptr; }
+
 	void Move(Bounds bounds) {
 		bounds_ = bounds;
 	}
@@ -414,6 +419,8 @@ public:
 	bool HasFocus() const {
 		return GetFocusedView() == this;
 	}
+
+	virtual bool IsPressed() const { return false; }
 
 	void SetEnabled(bool enabled) {
 		enabledFunc_ = nullptr;
@@ -520,6 +527,15 @@ public:
 
 	void FocusChanged(int focusFlags) override;
 
+	void SetDrawBG(bool draw) { drawBG_ = draw; }
+	// Lets a click target still be clicked/touched normally while being skipped by
+	// directional (D-pad/analog) focus navigation - unlike SetEnabled(false), this
+	// doesn't affect its drawn style.
+	void SetCanBeFocused(bool canBeFocused) { canBeFocused_ = canBeFocused; }
+
+	bool IsPressed() const override { return down_; }
+	bool CanBeFocused() const override { return canBeFocused_; }
+
 	Event OnClick;
 
 protected:
@@ -529,6 +545,8 @@ protected:
 	virtual void ClickInternal();
 	void DrawBG(UIContext &dc, const Style &style);
 
+	bool drawBG_ = true;
+	bool canBeFocused_ = true;
 	CallbackColorTween *bgColor_ = nullptr;
 	float bgColorLast_ = 0.0f;
 	int downCountDown_ = 0;
@@ -748,6 +766,13 @@ public:
 	void SetText(std::string_view text) {
 		text_ = text;
 	}
+	const std::string &GetText() const {
+		return text_;
+	}
+	void SetTextPadding(const Padding &p) {
+		textPadding_ = p;
+	}
+	void AppendToLabel(std::string_view suffix) override { text_ += std::string(suffix); }
 
 protected:
 	void ClickInternal() override;
@@ -900,6 +925,16 @@ public:
 	std::string DescribeText() const override;
 	void GetContentDimensions(const UIContext &dc, float &w, float &h) const override;
 
+	void SetText(std::string_view text) {
+		text_ = text;
+	}
+	const std::string &GetText() const {
+		return text_;
+	}
+
+	const void *ConfigValuePtr() const override { return toggle_; }
+	void AppendToLabel(std::string_view suffix) override { text_ += std::string(suffix); }
+
 	//allow external agents to toggle the checkbox
 	virtual void Toggle();
 	virtual bool Toggled() const;
@@ -1043,6 +1078,7 @@ public:
 	void SetBullet(bool bullet) { bullet_ = bullet; }
 	void SetPadding(Margins padding) { pad_ = padding; }
 	void SetAlign(int align) { textAlign_ = align; }
+	void SetScale(float scale) { scale_ = scale; }
 
 	bool CanBeFocused() const override { return focusable_; }
 
@@ -1059,6 +1095,7 @@ private:
 	bool clip_ = true;
 	bool bullet_ = false;
 	Margins pad_{};
+	float scale_ = 1.0f;
 };
 
 // Quick hack for clickable version number
@@ -1127,12 +1164,14 @@ public:
 	void Draw(UIContext &dc) override;
 	std::string DescribeText() const override { return text_; }
 	void SetScale(float s) { scale_ = s; }  // Only used for measuring.
+	void SetColor(uint32_t color) { color_ = color; }
 
 private:
 	std::string text_;
 	ImageID atlasImage_;
 	ImageSizeMode sizeMode_;  // TODO: Not actually used yet.
 	float scale_ = 1.0f;
+	uint32_t color_ = 0xFFFFFFFF;
 };
 
 class ProgressBar : public InertView {

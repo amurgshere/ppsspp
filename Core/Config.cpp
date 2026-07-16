@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <mutex>
 #include <set>
@@ -233,6 +234,11 @@ static const ConfigSetting generalSettings[] = {
 	ConfigSetting("LogVerbosityOverrideLevel", SETTING(g_Config, iLogVerbosityOverrideLevel), (int)LogLevel::LDEBUG, CfgFlag::PER_GAME),
 	ConfigSetting("LogVerbosityOverrideMode", SETTING(g_Config, iLogVerbosityOverrideMode), 0, CfgFlag::PER_GAME),
 	ConfigSetting("AutoRun", SETTING(g_Config, bAutoRun), true, CfgFlag::DEFAULT),
+	ConfigSetting("KioskModeDefault", SETTING(g_Config, bKioskModeDefault), false, CfgFlag::DEFAULT),
+	ConfigSetting("KioskRecentRomsCount", SETTING(g_Config, iKioskRecentRomsCount), 10, CfgFlag::DEFAULT),
+	ConfigSetting("KioskDisplayOnlyRecentRoms", SETTING(g_Config, bKioskDisplayOnlyRecentRoms), false, CfgFlag::DEFAULT),
+	ConfigSetting("KioskGridSortField", SETTING(g_Config, iKioskGridSortField), 0, CfgFlag::DEFAULT),
+	ConfigSetting("KioskGridSortAscending", SETTING(g_Config, bKioskGridSortAscending), false, CfgFlag::DEFAULT),
 	ConfigSetting("IgnoreBadMemAccess", SETTING(g_Config, bIgnoreBadMemAccess), true, CfgFlag::DEFAULT),
 	ConfigSetting("CurrentDirectory", SETTING(g_Config, currentDirectory), "", CfgFlag::DEFAULT),
 	ConfigSetting("ShowDebuggerOnLoad", SETTING(g_Config, bShowDebuggerOnLoad), false, CfgFlag::DEFAULT),
@@ -344,6 +350,7 @@ static const ConfigSetting generalSettings[] = {
 	ConfigSetting("PauseExitsEmulator", SETTING(g_Config, bPauseExitsEmulator), false, CfgFlag::DONT_SAVE),
 	ConfigSetting("PauseMenuExitsEmulator", SETTING(g_Config, bPauseMenuExitsEmulator), false, CfgFlag::DONT_SAVE),
 	ConfigSetting("LoadedViaDirectLaunch", SETTING(g_Config, bLoadedViaDirectLaunch), false, CfgFlag::DONT_SAVE),
+	ConfigSetting("KioskModeActive", SETTING(g_Config, bKioskModeActive), false, CfgFlag::DONT_SAVE),
 
 	ConfigSetting("DumpFileTypes", SETTING(g_Config, iDumpFileTypes), 0, CfgFlag::PER_GAME),
 
@@ -712,7 +719,7 @@ static const ConfigSetting graphicsSettings[] = {
 	ConfigSetting("AndroidHwScale", SETTING(g_Config, iAndroidHwScale), &DefaultAndroidHwScale, CfgFlag::DEFAULT),
 	ConfigSetting("HighQualityDepth", SETTING(g_Config, bHighQualityDepth), true, CfgFlag::PER_GAME | CfgFlag::REPORT),
 	ConfigSetting("FrameSkip", SETTING(g_Config, iFrameSkip), 0, CfgFlag::PER_GAME | CfgFlag::REPORT),
-	ConfigSetting("AutoFrameSkip", SETTING(g_Config, bAutoFrameSkip), IsVREnabled(), CfgFlag::PER_GAME | CfgFlag::REPORT),
+	ConfigSetting("AutoFrameSkip", SETTING(g_Config, bAutoFrameSkip), &IsVREnabled, CfgFlag::PER_GAME | CfgFlag::REPORT),
 	ConfigSetting("StereoRendering", SETTING(g_Config, bStereoRendering), false, CfgFlag::PER_GAME),
 	ConfigSetting("StereoToMonoShader", SETTING(g_Config, sStereoToMonoShader), "RedBlue", CfgFlag::PER_GAME),
 	ConfigSetting("FrameRate", SETTING(g_Config, iFpsLimit1), 0, CfgFlag::PER_GAME),
@@ -777,7 +784,7 @@ static const ConfigSetting graphicsSettings[] = {
 	ConfigSetting("UberShaderVertex", SETTING(g_Config, bUberShaderVertex), true, CfgFlag::DEFAULT),
 	ConfigSetting("UberShaderFragment", SETTING(g_Config, bUberShaderFragment), true, CfgFlag::DEFAULT),
 
-	ConfigSetting("DisplayRefreshRate", SETTING(g_Config, iDisplayRefreshRate), g_Config.iDisplayRefreshRate, CfgFlag::PER_GAME),
+	ConfigSetting("DisplayRefreshRate", SETTING(g_Config, iDisplayRefreshRate), 60, CfgFlag::PER_GAME),
 };
 
 static int LegacyVolumeToNewVolume(int legacy, int max) {
@@ -1162,20 +1169,25 @@ ConfigBlock *GetConfigBlockForSection(std::string_view sectionName) {
 const size_t numSections = ARRAY_SIZE(g_sectionMeta);
 
 std::map<const void *, std::pair<const ConfigBlock *, const ConfigSetting *>> &Config::getPtrLUT() {
-	static std::map<const void *, std::pair<const ConfigBlock *, const ConfigSetting *>> lut;
+	// Deliberately built lazily on first real use (not from Config::Config()) - g_Config is the
+	// first global in this file, so populating this eagerly from its own constructor made this
+	// the very first code to touch g_sectionMeta/graphicsSettings etc., racing their own still-
+	// pending dynamic initialization and leaving some entries computed with a stale offset of 0.
+	static std::map<const void *, std::pair<const ConfigBlock *, const ConfigSetting *>> lut = [] {
+		std::map<const void *, std::pair<const ConfigBlock *, const ConfigSetting *>> map;
+		for (size_t i = 0; i < numSections; ++i) {
+			ConfigBlock *configBlock = g_sectionMeta[i].configBlock;
+			for (size_t j = 0; j < g_sectionMeta[i].settingsCount; j++) {
+				const void *ptr = g_sectionMeta[i].settings[j].GetVoidPtr(configBlock);
+				map[ptr] = std::make_pair(configBlock, &g_sectionMeta[i].settings[j]);
+			}
+		}
+		return map;
+	}();
 	return lut;
 }
 
 Config::Config() {
-	// Initialize the pointer->setting lookup map.
-	auto ref = getPtrLUT();
-	for (size_t i = 0; i < numSections; ++i) {
-		ConfigBlock *configBlock = g_sectionMeta[i].configBlock;
-		for (size_t j = 0; j < g_sectionMeta[i].settingsCount; j++) {
-			const void *ptr = g_sectionMeta[i].settings[j].GetVoidPtr(configBlock);
-			ref[ptr] = std::make_pair(configBlock, &g_sectionMeta[i].settings[j]);
-		}
-	}
 }
 
 Config::~Config() {
@@ -1889,6 +1901,14 @@ bool PlayTimeTracker::GetPlayedTimeString(const std::string &gameId, std::string
 	const int hours = totalSeconds;
 
 	*str = ApplySafeSubstitutions(ga->T("Time Played: %1h %2m %3s"), hours, minutes, seconds);
+	return true;
+}
+
+bool PlayTimeTracker::GetPlayTime(const std::string &gameId, PlayTime *out) const {
+	auto iter = tracker_.find(gameId);
+	if (iter == tracker_.end())
+		return false;
+	*out = iter->second;
 	return true;
 }
 

@@ -217,6 +217,8 @@ struct ConfigSetting {
 
 	// Returns false if per-game settings are not currently used
 	static bool perGame(void *ptr);
+	// The registered ConfigSetting for ptr, or nullptr if unregistered.
+	static const ConfigSetting *Lookup(void *ptr);
 
 	const void *GetVoidPtr(ConfigBlock *configBlock) const {
 		char *configBlockBase = (char *)configBlock;

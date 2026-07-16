@@ -12,7 +12,23 @@ bool ConfigSetting::perGame(void *ptr) {
 	return g_Config.IsGameSpecific() && g_Config.getPtrLUT().count(ptr) > 0 && g_Config.getPtrLUT()[ptr].second->PerGame();
 }
 
+const ConfigSetting *ConfigSetting::Lookup(void *ptr) {
+	auto &lut = g_Config.getPtrLUT();
+	auto it = lut.find(ptr);
+	return it == lut.end() ? nullptr : it->second.second;
+}
+
 bool ConfigSetting::ReadFromIniSection(ConfigBlock *configBlock, const Section *section, bool applyDefaultIfMissing) const {
+	if (!SaveSetting()) {
+		// DONT_SAVE settings are never written to the ini, so they'd always hit
+		// the "missing from ini" branch below and get reset to their compiled
+		// default - fine for a fresh Config at startup (already holds that
+		// default), but wrong for a mid-session reload (e.g. entering/leaving
+		// per-game settings), which would otherwise clobber session-only state
+		// a caller set at runtime.
+		return false;
+	}
+
 	char *owner = (char *)configBlock;
 	_dbg_assert_(offset_ >= 0 && offset_ < configBlock->Size());
 

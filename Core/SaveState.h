@@ -77,6 +77,10 @@ namespace SaveState {
 	// persistent state is stored.
 	bool HasNewerGameSaveThanSlot(const Path &gameFilename, const std::string &gameID, int slot);
 
+	// Returns the most recently modified file under this game's in-game
+	// (non-savestate) save data directories, or an empty Path if it has none.
+	Path GetNewestGameSaveFile(const std::string &gameID);
+
 	// Resolves which slot the "Auto save savestate" feature (see
 	// AutoSaveSaveState in ConfigValues.h) would save to right now, given the
 	// current config mode. -1 if the mode is Off or no valid slot exists.

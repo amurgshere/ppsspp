@@ -42,7 +42,7 @@ enum class KeyEventResult {
 KeyEventResult UnsyncKeyEvent(const KeyInput &key, ViewGroup *root);
 
 bool KeyEvent(const KeyInput &key, ViewGroup *root);
-void TouchEvent(const TouchInput &touch, ViewGroup *root);
+void TouchEvent(const TouchInput &touch, ViewGroup *root, bool disableFocusMovementOnTouch = true);
 void AxisEvent(const AxisInput &axis, ViewGroup *root);
 
 enum class UISound {

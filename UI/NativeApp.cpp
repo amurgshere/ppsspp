@@ -128,6 +128,7 @@
 #include "UI/GameSettingsScreen.h"
 #include "UI/DeveloperToolsScreen.h"
 #include "UI/GPUDriverTestScreen.h"
+#include "UI/Kiosk/KioskCarouselScreen.h"
 #include "UI/MiscScreens.h"
 #include "UI/MemStickScreen.h"
 #include "UI/OnScreenDisplay.h"
@@ -536,6 +537,7 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 	bool gotoGameSettings = false;
 	bool gotoTouchScreenTest = false;
 	bool gotoDeveloperTools = false;
+	bool gotoKioskMode = false;
 	boot_filename.clear();
 
 	// Parse command line
@@ -607,6 +609,8 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 					gotoGameSettings = true;
 				if (!strcmp(argv[i], "--developertools"))
 					gotoDeveloperTools = true;
+				if (!strcmp(argv[i], "--kiosk"))
+					gotoKioskMode = true;
 				if (!strncmp(argv[i], "--appendconfig=", strlen("--appendconfig=")) && strlen(argv[i]) > strlen("--appendconfig=")) {
 					g_Config.SetAppendedConfigIni(Path(argv[i] + strlen("--appendconfig=")));
 					g_Config.LoadAppendedConfig();
@@ -749,6 +753,7 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 
 	DEBUG_LOG(Log::System, "ScreenManager!");
 	g_screenManager = new ScreenManager();
+	bool enterKiosk = gotoKioskMode || g_Config.bKioskModeDefault;
 	if (g_Config.memStickDirectory.empty()) {
 		INFO_LOG(Log::System, "No memstick directory! Asking for one to be configured.");
 		g_screenManager->switchScreen(new LogoScreen(AfterLogoScreen::MEMSTICK_SCREEN_INITIAL_SETUP));
@@ -761,8 +766,14 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 		g_screenManager->switchScreen(new MainScreen());
 		g_screenManager->push(new DeveloperToolsScreen(Path()));
 	} else if (skipLogo && !boot_filename.empty()) {
+		if (enterKiosk) {
+			g_Config.bKioskModeActive = true;
+		}
 		INFO_LOG(Log::System, "Launching EmuScreen with boot filename '%s'", boot_filename.c_str());
 		g_screenManager->switchScreen(new EmuScreen(boot_filename));
+	} else if (enterKiosk) {
+		g_Config.bKioskModeActive = true;
+		g_screenManager->switchScreen(new KioskCarouselScreen());
 	} else {
 		g_screenManager->switchScreen(new LogoScreen(AfterLogoScreen::DEFAULT));
 	}

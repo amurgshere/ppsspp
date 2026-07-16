@@ -76,6 +76,7 @@
 #include "Common/TimeUtil.h"
 #include "Common/StringUtils.h"
 #include "Core/Config.h"
+#include "Core/ConfigSettings.h"
 #include "Core/ConfigValues.h"
 #include "Core/KeyMap.h"
 #include "Core/TiltEventProcessor.h"
@@ -180,6 +181,76 @@ GameSettingsScreen::~GameSettingsScreen() {
 void GameSettingsScreen::PreCreateViews() {
 	ReloadAllPostShaderInfo(screenManager()->getDrawContext());
 	ReloadAllThemeInfo();
+}
+
+void GameSettingsScreen::CreateExtraButtons(UI::ViewGroup *verticalLayout, int margins) {
+	using namespace UI;
+	auto ga = GetI18NCategory(I18NCat::GAME);
+	bool isGameSpecific = g_Config.IsGameSpecific();
+
+	std::string statusText = isGameSpecific
+		? std::string(ga->T("EditingGameConfig", "Editing Game Config")) + "\n" + std::string(ga->T("PerGameSettingsLegend", "* = Game Specific Settings"))
+		: std::string(ga->T("EditingGlobalConfig", "Editing Global Config"));
+	verticalLayout->Add(new TextView(
+		statusText, ALIGN_LEFT | FLAG_WRAP_TEXT, true, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, 0.0f, Margins(0, 0, margins, 4))));
+
+	if (isGameSpecific) {
+		verticalLayout->Add(new Choice(ga->T("Delete Game Config"), new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, 0.0f, Margins(0, 0, margins, margins))))
+			->OnClick.Handle(this, &GameSettingsScreen::OnDeleteGameConfig);
+	} else if (!gameID_.empty()) {
+		verticalLayout->Add(new Choice(ga->T("Create Game Config"), new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, 0.0f, Margins(0, 0, margins, margins))))
+			->OnClick.Handle(this, &GameSettingsScreen::OnCreateGameConfig);
+	}
+}
+
+void GameSettingsScreen::OnDeleteGameConfig(UI::EventParams &e) {
+	auto di = GetI18NCategory(I18NCat::DIALOG);
+	bool trashAvailable = System_GetPropertyBool(SYSPROP_HAS_TRASH_BIN);
+	screenManager()->push(new UI::MessagePopupScreen(di->T("Delete"),
+		di->T("DeleteConfirmGameConfig", "Do you really want to delete the settings for this game?"),
+		trashAvailable ? di->T("Move to trash") : di->T("Delete"), di->T("Cancel"), [this](bool yes) {
+		if (!yes)
+			return;
+		g_Config.UnloadGameConfig();
+		g_Config.DeleteGameConfig(gameID_);
+		// Prevents the destructor's own UnloadGameConfig() call, which would assert (already unloaded).
+		editGameSpecificThenRestore_ = false;
+		RecreateViews();
+	}));
+}
+
+void GameSettingsScreen::OnCreateGameConfig(UI::EventParams &e) {
+	if (gameID_.empty())
+		return;
+	std::shared_ptr<GameInfo> info = g_gameInfoCache->GetInfo(nullptr, gamePath_, GameInfoFlags::PARAM_SFO);
+	std::string title = (info && info->Ready(GameInfoFlags::PARAM_SFO)) ? info->GetTitle() : gamePath_.GetFilename();
+	g_Config.CreateGameConfig(gameID_);
+	g_Config.SaveGameConfig(gameID_, title);
+	g_Config.LoadGameConfig(gameID_);
+	editGameSpecificThenRestore_ = true;
+	RecreateViews();
+}
+
+static void AppendPerGameMarkers(UI::ViewGroup *group) {
+	using namespace UI;
+	for (int i = 0; i < group->GetNumSubviews(); i++) {
+		View *view = group->GetViewByIndex(i);
+		if (const void *ptr = view->ConfigValuePtr()) {
+			const ConfigSetting *setting = ConfigSetting::Lookup(const_cast<void *>(ptr));
+			if (setting && setting->PerGame()) {
+				view->AppendToLabel(" *");
+			}
+		}
+		if (ViewGroup *childGroup = view->AsViewGroup()) {
+			AppendPerGameMarkers(childGroup);
+		}
+	}
+}
+
+void GameSettingsScreen::PostProcessTabContents(UI::ViewGroup *contents) {
+	if (g_Config.IsGameSpecific()) {
+		AppendPerGameMarkers(contents);
+	}
 }
 
 // This needs before run CheckGPUFeatures()
@@ -1269,6 +1340,11 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 		saturation->SetLiveUpdate(true);
 		systemSettings->Add(saturation);
 	}
+
+	systemSettings->Add(new ItemHeader(sy->T("Kiosk Mode")));
+	systemSettings->Add(new CheckBox(&g_Config.bKioskModeDefault, sy->T("Kiosk mode by default")));
+	systemSettings->Add(new PopupSliderChoice(&g_Config.iKioskRecentRomsCount, 5, 20, 10, sy->T("Recent ROMs to Display"), screenManager()));
+	systemSettings->Add(new CheckBox(&g_Config.bKioskDisplayOnlyRecentRoms, sy->T("Display only Recent ROMs")));
 
 	systemSettings->Add(new ItemHeader(sy->T("PSP Memory Stick")));
 

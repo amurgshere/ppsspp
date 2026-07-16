@@ -206,6 +206,9 @@ Clickable::Clickable(LayoutParams *layoutParams)
 }
 
 void Clickable::DrawBG(UIContext &dc, const Style &style) {
+	if (!drawBG_) {
+		return;
+	}
 	if (style.background.type == DRAW_SOLID_COLOR) {
 		if (time_now_d() - bgColorLast_ >= 0.25f) {
 			bgColor_->Reset(style.background.color);
@@ -513,7 +516,10 @@ void Choice::GetContentDimensionsBySpec(const UIContext &dc, MeasureSpec horiz, 
 		}
 	}
 
-	w = totalW + (text_.empty() ? 16 : 24);
+	// textPadding_ is subtracted from availWidth above but must be added back
+	// here, or Draw()'s matching subtraction (see availWidth there) squeezes
+	// the already-tightly-measured text a second time.
+	w = totalW + (text_.empty() ? 16 : 24) + textPadding_.horiz();
 	h = totalH + 16;
 	h = std::max(h, ITEM_HEIGHT);
 }
@@ -1051,7 +1057,7 @@ void ImageView::Draw(UIContext &dc) {
 	if (img) {
 		// TODO: involve sizemode
 		float scale = bounds_.w / img->w;
-		dc.Draw()->DrawImage(atlasImage_, bounds_.x, bounds_.y, scale, 0xFFFFFFFF, ALIGN_TOPLEFT);
+		dc.Draw()->DrawImage(atlasImage_, bounds_.x, bounds_.y, scale, color_, ALIGN_TOPLEFT);
 	}
 }
 
@@ -1108,7 +1114,7 @@ void TextView::GetContentDimensionsBySpec(const UIContext &dc, MeasureSpec horiz
 	const FontStyle *style = GetTextStyle(dc, textSize_);
 	float measuredW;
 	float measuredH;
-	dc.MeasureTextRect(*style, 1.0f, 1.0f, text_, availWidth, &measuredW, &measuredH, textAlign_);
+	dc.MeasureTextRect(*style, scale_, scale_, text_, availWidth, &measuredW, &measuredH, textAlign_);
 	w = measuredW + pad_.horiz();
 	h = measuredH + pad_.vert();
 	if (bullet_) {
@@ -1142,6 +1148,7 @@ void TextView::Draw(UIContext &dc) {
 
 	const FontStyle *style = GetTextStyle(dc, textSize_);
 	dc.SetFontStyle(*style);
+	dc.SetFontScale(scale_, scale_);
 
 	Bounds textBounds = bounds_;
 
@@ -1161,6 +1168,7 @@ void TextView::Draw(UIContext &dc) {
 		dc.DrawTextRect(text_, textBounds.Offset(1.0f + pad_.left, 1.0f + pad_.top), shadowColor, textAlign_);
 	}
 	dc.DrawTextRect(text_, textBounds.Offset(pad_.left, pad_.top), textColor, textAlign_);
+	dc.SetFontScale(1.0f, 1.0f);
 	if (textSize_ != TextSize::Normal) {
 		// If we changed font style, reset it.
 		dc.SetFontStyle(dc.GetTheme().uiFont);

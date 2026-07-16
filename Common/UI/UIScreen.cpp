@@ -68,7 +68,7 @@ void UIScreen::DoRecreateViews() {
 
 void UIScreen::touch(const TouchInput &touch) {
 	if (!ignoreInput_ && root_) {
-		UI::TouchEvent(touch, root_);
+		UI::TouchEvent(touch, root_, TouchDisablesFocusMovement());
 	}
 }
 

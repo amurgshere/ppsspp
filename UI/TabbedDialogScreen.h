@@ -44,6 +44,7 @@ protected:
 	// Load data and define your tabs here.
 	virtual void PreCreateViews() {}
 	virtual void CreateTabs() = 0;
+	virtual void PostProcessTabContents(UI::ViewGroup *contents) {}
 	virtual void CreateExtraButtons(UI::ViewGroup *verticalLayout, int margins) {}
 	virtual bool ShowSearchControls() const { return true; }
 	virtual void EnsureTabs();

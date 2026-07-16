@@ -270,27 +270,31 @@ void UIContext::DrawTextShadow(std::string_view str, float x, float y, uint32_t 
 	DrawText(str, x, y, color, align);
 }
 
-void UIContext::DrawTextRect(std::string_view str, const Bounds &bounds, uint32_t color, int align) {
+void UIContext::DrawTextRect(std::string_view str, const Bounds &bounds, uint32_t color, int align, float angle) {
 	if (!textDrawer_ || (align & FLAG_DYNAMIC_ASCII)) {
-		// Use the font texture if this font is in that texture instead.
-		bool useFontTexture = Draw()->GetFontAtlas()->getFont(AtlasFontFromStyle(*fontStyle_)) != nullptr;
-		if (useFontTexture) {
-			Flush();
-			BindFontTexture();
-		}
-		float sizeFactor = (float)fontStyle_->sizePts / 24.0f;
-		Draw()->SetFontScale(fontScaleX_ * sizeFactor, fontScaleY_ * sizeFactor);
-		Draw()->DrawTextRect(AtlasFontFromStyle(*fontStyle_), str, bounds.x, bounds.y, bounds.w, bounds.h, color, align);
-		if (useFontTexture)
-			Flush();
+		DrawTextRectAtlasFont(str, bounds, color, align);
 	} else {
 		textDrawer_->SetFontScale(fontScaleX_, fontScaleY_);
 		Bounds rounded = bounds;
 		rounded.x = floorf(rounded.x);
 		rounded.y = floorf(rounded.y);
-		textDrawer_->DrawStringRect(*Draw(), str, rounded, color, align);
+		textDrawer_->DrawStringRect(*Draw(), str, rounded, color, align, angle);
 	}
 	RebindTexture();
+}
+
+void UIContext::DrawTextRectAtlasFont(std::string_view str, const Bounds &bounds, uint32_t color, int align) {
+	// Use the font texture if this font is in that texture instead.
+	bool useFontTexture = Draw()->GetFontAtlas()->getFont(AtlasFontFromStyle(*fontStyle_)) != nullptr;
+	if (useFontTexture) {
+		Flush();
+		BindFontTexture();
+	}
+	float sizeFactor = (float)fontStyle_->sizePts / 24.0f;
+	Draw()->SetFontScale(fontScaleX_ * sizeFactor, fontScaleY_ * sizeFactor);
+	Draw()->DrawTextRect(AtlasFontFromStyle(*fontStyle_), str, bounds.x, bounds.y, bounds.w, bounds.h, color, align);
+	if (useFontTexture)
+		Flush();
 }
 
 static constexpr float MIN_TEXT_SCALE = 0.7f;
@@ -305,7 +309,7 @@ float UIContext::CalculateTextScale(std::string_view str, float availWidth) cons
 	return 1.0f;
 }
 
-void UIContext::DrawTextRectSqueeze(std::string_view str, const Bounds &bounds, uint32_t color, int align) {
+void UIContext::DrawTextRectSqueeze(std::string_view str, const Bounds &bounds, uint32_t color, int align, float angle) {
 	if (bounds.w <= 0 || bounds.h <= 0) {
 		// Probably mid-layout.
 		return;
@@ -315,7 +319,7 @@ void UIContext::DrawTextRectSqueeze(std::string_view str, const Bounds &bounds, 
 	float scale = CalculateTextScale(str, bounds.w / origScaleX);
 	SetFontScale(scale * origScaleX, scale * origScaleY);
 	Bounds textBounds(bounds.x, bounds.y, bounds.w, bounds.h);
-	DrawTextRect(str, textBounds, color, align);
+	DrawTextRect(str, textBounds, color, align, angle);
 	SetFontScale(origScaleX, origScaleY);
 }
 

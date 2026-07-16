@@ -850,6 +850,8 @@ add_library(Common STATIC
 	Common/Render/Text/draw_text_win.h
 	Common/Render/Text/draw_text_uwp.cpp
 	Common/Render/Text/draw_text_uwp.h
+	Common/Render/Text/draw_text_switch.cpp
+	Common/Render/Text/draw_text_switch.h
 	Common/Audio/AudioBackend.h
 	Common/System/Display.cpp
 	Common/System/Display.h
@@ -1605,6 +1607,25 @@ else()
 	endif()
 endif()
 
+if(USE_LIBNX)
+	# Needed by Common/Render/Text/draw_text_switch.cpp (compiled as part of
+	# Common) to rasterize the console's system shared font, using
+	# devkitPro's switch-freetype portlib. Linked directly by path (like
+	# libdav1d.a above) rather than via find_package(Freetype), since that
+	# package's exported "freetype" target name collides with the one our
+	# own vendored ext/freetype (used by AtlasTool) already defines.
+	target_include_directories(Common PRIVATE /opt/devkitpro/portlibs/switch/include/freetype2)
+	# freetype's own package config links these as its dependencies, in this
+	# order (harfbuzz for auto-hinting, png/bz2/z for compressed glyph data).
+	target_link_libraries(Common
+		/opt/devkitpro/portlibs/switch/lib/libfreetype.a
+		/opt/devkitpro/portlibs/switch/lib/libharfbuzz.a
+		/opt/devkitpro/portlibs/switch/lib/libpng.a
+		/opt/devkitpro/portlibs/switch/lib/libbz2.a
+		/opt/devkitpro/portlibs/switch/lib/libz.a
+	)
+endif()
+
 if(WIN32)
 	target_link_libraries(Common winmm dsound dxguid Version)
 endif()
@@ -1669,6 +1690,33 @@ list(APPEND NativeAppSource
 	UI/GameScreen.cpp
 	UI/GameSettingsScreen.h
 	UI/GameSettingsScreen.cpp
+	UI/Kiosk/KioskCommon.h
+	UI/Kiosk/KioskCommon.cpp
+	UI/Kiosk/KioskFocusTracker.h
+	UI/Kiosk/KioskGameList.h
+	UI/Kiosk/KioskGameList.cpp
+	UI/Kiosk/KioskTile.h
+	UI/Kiosk/KioskTile.cpp
+	UI/Kiosk/KioskTileGroup.h
+	UI/Kiosk/KioskTileGroup.cpp
+	UI/Kiosk/KioskTileGridView.h
+	UI/Kiosk/KioskTileGridView.cpp
+	UI/Kiosk/KioskCarouselView.h
+	UI/Kiosk/KioskCarouselView.cpp
+	UI/Kiosk/KioskHintBar.h
+	UI/Kiosk/KioskHintBar.cpp
+	UI/Kiosk/KioskCarouselScreen.h
+	UI/Kiosk/KioskCarouselScreen.cpp
+	UI/Kiosk/KioskGridScreen.h
+	UI/Kiosk/KioskGridScreen.cpp
+	UI/Kiosk/KioskGameInfoPopup.h
+	UI/Kiosk/KioskGameInfoPopup.cpp
+	UI/Kiosk/KioskSaveThumbnail.h
+	UI/Kiosk/KioskSaveThumbnail.cpp
+	UI/Kiosk/KioskSaveSlot.h
+	UI/Kiosk/KioskSaveSlot.cpp
+	UI/Kiosk/KioskInfoCard.h
+	UI/Kiosk/KioskInfoCard.cpp
 	UI/DeveloperToolsScreen.h
 	UI/DeveloperToolsScreen.cpp
 	UI/DriverManagerScreen.h

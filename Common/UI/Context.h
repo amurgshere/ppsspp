@@ -98,10 +98,10 @@ public:
 	void MeasureTextRect(const FontStyle &style, float scaleX, float scaleY, std::string_view str, float maxWidth, float *x, float *y, int align = 0) const;
 	void DrawText(std::string_view str, float x, float y, uint32_t color, int align = 0);
 	void DrawTextShadow(std::string_view str, float x, float y, uint32_t color, int align = 0);
-	void DrawTextRect(std::string_view str, const Bounds &bounds, uint32_t color, int align = 0);
+	void DrawTextRect(std::string_view str, const Bounds &bounds, uint32_t color, int align = 0, float angle = 0.0f);
 	void DrawTextShadowRect(std::string_view str, const Bounds &bounds, uint32_t color, int align = 0);
 	// Will squeeze the text into the bounds if needed.
-	void DrawTextRectSqueeze(std::string_view str, const Bounds &bounds, uint32_t color, int align = 0);
+	void DrawTextRectSqueeze(std::string_view str, const Bounds &bounds, uint32_t color, int align = 0, float angle = 0.0f);
 
 	float CalculateTextScale(std::string_view str, float availWidth) const;
 
@@ -128,6 +128,8 @@ public:
 	void SetAtlasProvider(UIAtlasProviderFunc func) { atlasProvider_ = func; }
 	void InvalidateAtlas();
 private:
+	void DrawTextRectAtlasFont(std::string_view str, const Bounds &bounds, uint32_t color, int align);
+
 	Draw::DrawContext *draw_ = nullptr;
 	Bounds bounds_;
 

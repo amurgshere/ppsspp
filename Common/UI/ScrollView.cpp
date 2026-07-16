@@ -166,6 +166,9 @@ bool ScrollView::Touch(const TouchInput &input) {
 		}
 		scrollTouchId_ = -1;
 		draggingBob_ = false;
+	} else if (input.flags & TOUCH_RELEASE_ALL) {
+		scrollTouchId_ = -1;
+		draggingBob_ = false;
 	}
 
 	// We modify the input2 we send to children, so we can cancel drags if we start scrolling, and stuff like that.
