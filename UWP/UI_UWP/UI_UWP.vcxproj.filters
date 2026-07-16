@@ -133,6 +133,45 @@
     <ClCompile Include="..\..\UI\MiscViews.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskCommon.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskGameList.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskTile.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskTileGroup.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskCarouselView.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskTileGridView.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskHintBar.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskCarouselScreen.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskGridScreen.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskGameInfoPopup.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskSaveThumbnail.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskSaveSlot.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\UI\Kiosk\KioskInfoCard.cpp">
+      <Filter>Kiosk</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\UI\Background.cpp" />
     <ClCompile Include="..\..\UI\BaseScreens.cpp" />
   </ItemGroup>
@@ -266,6 +305,48 @@
     <ClInclude Include="..\..\UI\MiscViews.h">
       <Filter>Screens</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskCommon.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskGameList.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskTile.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskTileGroup.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskFocusTracker.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskCarouselView.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskTileGridView.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskHintBar.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskCarouselScreen.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskGridScreen.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskGameInfoPopup.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskSaveThumbnail.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskSaveSlot.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\UI\Kiosk\KioskInfoCard.h">
+      <Filter>Kiosk</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\UI\Background.h" />
     <ClInclude Include="..\..\UI\BaseScreens.h" />
   </ItemGroup>
@@ -275,6 +356,9 @@
     </Filter>
     <Filter Include="Screens">
       <UniqueIdentifier>{38b8413d-438d-4197-9db8-7bd123fc7431}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Kiosk">
+      <UniqueIdentifier>{7a1c2e4d-9f3b-4a6e-8c5d-2b1e7f9a3c6d}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>
