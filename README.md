@@ -11,7 +11,7 @@ Official website: https://www.ppsspp.org/
 
 Discord: https://discord.gg/5NJB6dD
 
-*uNOTE:** Most of this work has been completed using vibe coding with Claude Code using Sonnet 5 model. All code has been vetted by me directly.
+**Note:** Most of this work has been completed using vibe coding with Claude Code using Sonnet 5 model. All code has been vetted by me directly.
 
 **Download:** to get fresh builds of this fork (including the Switch NRO), see [this fork's Actions tab](https://github.com/amurgshere/ppsspp/actions) — pick a recent successful workflow run and download the artifact for your platform. For official upstream dev builds (Android/Windows/Mac only, no Switch), see [the /devbuilds page](https://www.ppsspp.org/devbuilds).
 
