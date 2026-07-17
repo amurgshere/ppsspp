@@ -19,6 +19,7 @@
 
 #include <map>
 #include <memory>
+#include <mutex>
 
 #include "FileSystem.h"
 
@@ -89,11 +90,22 @@ private:
 	};
 
 	typedef std::map<u32, OpenFileEntry> EntryMap;
+	// Guards entries and lastReadBlock_, which are accessed both by the CPU thread
+	// (OpenFile/CloseFile/Seek/etc., all synchronous) and by AsyncIOManager worker
+	// threads (ReadFile/WriteFile, dispatched asynchronously -- see IOThreadCount).
+	std::mutex entriesMutex_;
 	EntryMap entries;
 	IHandleAllocator *hAlloc;
 	TreeEntry *treeroot;
 	BlockDevice *blockDevice;
 	u32 lastReadBlock_;
+
+	// Returns a copy of the entry so callers can do the actual (potentially slow)
+	// disc I/O without holding entriesMutex_. Returns false if the handle isn't open.
+	bool GetOpenFileEntry(u32 handle, OpenFileEntry *out);
+	// Applies just the fields ReadFile/WriteFile/SeekFile may mutate back to the
+	// live entry, and updates lastReadBlock_ if provided non-null.
+	void UpdateOpenFileEntry(u32 handle, const OpenFileEntry &updated);
 
 	TreeEntry entireISO;
 

@@ -25,6 +25,7 @@
 
 #include <mutex>
 #include <memory>
+#include <vector>
 
 #include "Common/CommonTypes.h"
 
@@ -75,16 +76,29 @@ public:
 	bool IsDisc() const override { return true; }
 
 private:
+	// Per-calling-thread read/decompress scratch state. Kept out of the shared
+	// instance (rather than a single readBuffer/zlibBuffer pair) so concurrent
+	// ReadBlock/ReadBlocks calls on this same disc image -- from different
+	// AsyncIOManager worker threads, see the IOThreadCount compat/config setting --
+	// can't clobber each other's buffers.
+	struct ThreadScratch {
+		std::vector<u8> readBuffer;
+		std::vector<u8> zlibBuffer;
+		u32 zlibBufferFrame = 0;
+	};
+	ThreadScratch &GetThreadScratch();
+
 	u32 *index = nullptr;
-	u8 *readBuffer = nullptr;
-	u8 *zlibBuffer = nullptr;
-	u32 zlibBufferFrame = 0;
 	u8 indexShift = 0;
 	u8 blockShift = 0;
 	u32 frameSize = 0;
 	u32 numBlocks = 0;
 	u32 numFrames = 0;
 	int ver_ = 0;
+	// Unique per-instance ID (never reused) used to key per-thread scratch state,
+	// since a destroyed instance's address could otherwise be reused by a later
+	// CISOFileBlockDevice with different frame/block sizing.
+	const u64 instanceId_;
 };
 
 

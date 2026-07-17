@@ -24,6 +24,17 @@ void __IoInit();
 void __IoDoState(PointerWrap &p);
 void __IoShutdown();
 
+// Resolves the number of I/O worker threads that should be running right now, combining
+// the per-game IOThreadCount setting (g_Config.iIOThreadCount; 0 = "Default", i.e. defer
+// to the compat.ini value below) with the IOThreadCount compat.ini flag (0 if the current
+// game has no entry), clamped to a sane range.
+int GetEffectiveIOThreadCount();
+
+// Re-resolves GetEffectiveIOThreadCount() and grows or shrinks the live I/O worker pool
+// to match, without needing to pause or restart emulation. Safe to call at any time
+// (e.g. from a settings screen) once a game is running.
+void __IoRefreshThreadCount();
+
 struct ScePspDateTime;
 struct tm;
 

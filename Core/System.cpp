@@ -55,6 +55,7 @@
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/Plugins.h"
 #include "Core/HLE/ReplaceTables.h"
+#include "Core/HLE/sceIo.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceUtility.h"
 #include "Core/HW/Display.h"
@@ -366,6 +367,14 @@ static bool CPU_Init(FileLoader *fileLoader, IdentifiedFileType type, std::strin
 	g_CoreParameter.compat.Load(g_paramSFO.GetDiscID());
 	ShowCompatWarnings(g_CoreParameter.compat);
 
+	// Now that we know the effective IOThreadCount for this game (compat.ini flag or
+	// the per-game/global setting), give the loader a chance to prepare for concurrent
+	// reads -- matters on platforms (Switch) where a single file handle can't safely
+	// service more than one read at a time. See LocalFileLoader::PrepareConcurrency.
+	if (fileLoader) {
+		fileLoader->PrepareConcurrency(GetEffectiveIOThreadCount());
+	}
+
 	// This must be before Memory::Init because plugins can override the memory size.
 	if (type != IdentifiedFileType::PPSSPP_GE_DUMP) {
 		HLEPlugins::Init();
@@ -536,6 +545,10 @@ void CPU_Shutdown(bool success) {
 void UpdateLoadedFile(FileLoader *fileLoader) {
 	delete g_loadedFile;
 	g_loadedFile = fileLoader;
+}
+
+FileLoader *PSP_GetLoadedFile() {
+	return g_loadedFile;
 }
 
 void PSP_UpdateDebugStats(bool collectStats) {

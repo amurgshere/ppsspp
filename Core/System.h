@@ -89,6 +89,8 @@ void PSP_UpdateDebugStats(bool collectStats);
 void PSP_ForceDebugStats(bool enable);
 
 void UpdateLoadedFile(FileLoader *fileLoader);
+// The FileLoader for the currently running game, or null if none is loaded.
+FileLoader *PSP_GetLoadedFile();
 
 // NOTE: These are almost all derived from g_Config.memStickDirectory directly -
 // they are not stored anywhere.

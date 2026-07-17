@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <mutex>
 #include <condition_variable>
 #include <deque>
@@ -35,6 +36,13 @@ enum AsyncIOEventType {
 	IO_EVENT_READ,
 	IO_EVENT_WRITE,
 };
+
+// True for event types that operate on a specific file handle and thus need to be
+// serialized against other events for that same handle when running on more than
+// one worker thread. SYNC/FINISH are barriers with no associated handle.
+inline bool AsyncIOEventHasHandle(AsyncIOEventType t) {
+	return t == IO_EVENT_READ || t == IO_EVENT_WRITE;
+}
 
 struct AsyncIOEvent {
 	AsyncIOEvent(AsyncIOEventType t) : type(t) {}
@@ -77,6 +85,16 @@ struct AsyncIOResult {
 	u32 invalidateAddr;
 };
 
+// Services async file I/O on a small pool of background worker threads (sized per-game
+// via the IOThreadCount compat flag; defaults to a single worker, which behaves
+// identically to the historical single-I/O-thread design).
+//
+// Events for different file handles may run concurrently across workers. Events for
+// the *same* handle are never run concurrently -- GetNextEvent() will skip over an
+// event whose handle is already being serviced by another worker, preserving
+// per-handle ordering. IO_EVENT_SYNC/IO_EVENT_FINISH act as full barriers: a worker
+// will only pick one up once every event scheduled before it (including in-flight
+// ones on other workers) has finished.
 class AsyncIOManager {
 public:
 	void DoState(PointerWrap &p);
@@ -101,7 +119,9 @@ public:
 		if (threadEnabled_) {
 			std::lock_guard<std::recursive_mutex> guard(eventsLock_);
 			events_.push_back(ev);
-			eventsWait_.notify_one();
+			// Multiple workers may be idle waiting for eligible work, so wake them all
+			// to re-scan -- only one will actually claim this event.
+			eventsWait_.notify_all();
 		} else {
 			events_.push_back(ev);
 		}
@@ -114,7 +134,9 @@ public:
 	bool HasEvents() {
 		if (threadEnabled_) {
 			std::lock_guard<std::recursive_mutex> guard(eventsLock_);
-			return !events_.empty();
+			// busyHandles_ tracks events currently being serviced by a worker (and thus
+			// no longer sitting in events_), which still count as outstanding work.
+			return !events_.empty() || !busyHandles_.empty();
 		} else {
 			return !events_.empty();
 		}
@@ -127,17 +149,39 @@ public:
 		}
 	}
 
+	// Finds and removes the next event this worker may legally process, honoring
+	// per-handle serialization and barrier ordering. Returns IO_EVENT_INVALID if
+	// nothing is currently eligible (caller should wait and retry).
 	AsyncIOEvent GetNextEvent() {
 		if (threadEnabled_) {
 			std::lock_guard<std::recursive_mutex> guard(eventsLock_);
-			if (events_.empty()) {
-				NotifyDrain();
-				return IO_EVENT_INVALID;
+			for (auto it = events_.begin(); it != events_.end(); ++it) {
+				if (AsyncIOEventHasHandle(it->type)) {
+					if (busyHandles_.find(it->handle) != busyHandles_.end()) {
+						// Another worker already has this handle in flight -- keep scanning
+						// for other, independent work.
+						continue;
+					}
+					AsyncIOEvent ev = *it;
+					events_.erase(it);
+					busyHandles_.insert(ev.handle);
+					return ev;
+				}
+
+				// SYNC/FINISH: only resolvable once nothing scheduled before it remains
+				// outstanding, whether still queued (implied by not being at the front)
+				// or currently in flight on another worker.
+				bool earlierEventsRemain = it != events_.begin();
+				if (earlierEventsRemain || !busyHandles_.empty()) {
+					break;
+				}
+				AsyncIOEvent ev = *it;
+				events_.erase(it);
+				return ev;
 			}
 
-			AsyncIOEvent ev = events_.front();
-			events_.pop_front();
-			return ev;
+			NotifyDrain();
+			return IO_EVENT_INVALID;
 		} else {
 			if (events_.empty()) {
 				return IO_EVENT_INVALID;
@@ -149,7 +193,7 @@ public:
 	}
 
 	// This is the threadfunc, really. Although it can also run on the main thread if threadEnabled_ is set.
-	// TODO: Remove threadEnabled_, always be on a thread.
+	// Safe to call from more than one worker thread concurrently.
 	void RunEventsUntil(u64 globalticks) {
 		if (!threadEnabled_) {
 			do {
@@ -161,27 +205,40 @@ public:
 		}
 
 		std::unique_lock<std::recursive_mutex> guard(eventsLock_);
-		eventsRunning_ = true;
+		++activeWorkers_;
 		eventsHaveRun_ = true;
 		do {
-			while (events_.empty()) {
-				eventsWait_.wait(guard);
-			}
-			// Quit the loop if the queue is drained and coreState has tripped, or threading is disabled.
-			if (events_.empty()) {
-				break;
+			AsyncIOEvent ev = GetNextEvent();
+			while (AsyncIOEventType(ev) == IO_EVENT_INVALID) {
+				// Bounded by real wall-clock time rather than an unconditional wait, so
+				// this worker periodically re-checks for eligible work even if it's never
+				// notified again -- e.g. after RequestWorkerExit(), a FINISH marker may be
+				// claimed by a different worker than intended (any worker may claim any
+				// marker; see RequestWorkerExit), leaving this one with nothing left to
+				// wake it. Falling all the way back to the ~1 second globalticks deadline
+				// below isn't enough either, since CoreTiming ticks freeze while the game
+				// is paused. A short, harmless poll interval means this worker (and thus
+				// the __IoManagerThread loop that owns it) notices a reduced thread-count
+				// target within a bounded, real-time interval no matter what.
+				if (eventsWait_.wait_for(guard, std::chrono::milliseconds(100)) == std::cv_status::timeout) {
+					NotifyDrain();
+					--activeWorkers_;
+					return;
+				}
+				ev = GetNextEvent();
 			}
 
-			for (AsyncIOEvent ev = GetNextEvent(); AsyncIOEventType(ev) != IO_EVENT_INVALID; ev = GetNextEvent()) {
+			while (AsyncIOEventType(ev) != IO_EVENT_INVALID) {
 				guard.unlock();
 				ProcessEventIfApplicable(ev, globalticks);
 				guard.lock();
+				ev = GetNextEvent();
 			}
 		} while (CoreTiming::GetTicks() < globalticks);
 
 		// This will force the waiter to check coreState, even if we didn't actually drain.
 		NotifyDrain();
-		eventsRunning_ = false;
+		--activeWorkers_;
 	}
 
 	void SyncBeginFrame() {
@@ -200,7 +257,7 @@ public:
 			return false;
 
 		// Don't run if it's not running, but wait for startup.
-		if (!eventsRunning_) {
+		if (activeWorkers_ == 0) {
 			if (eventsHaveRun_ || coreState == CORE_RUNTIME_ERROR || coreState == CORE_POWERDOWN) {
 				return false;
 			}
@@ -225,20 +282,31 @@ public:
 	}
 
 	void FinishEventLoop() {
+		RequestWorkerExit(activeWorkers_);
+	}
+
+	// Schedules `count` FINISH barrier markers, causing up to `count` worker
+	// RunEventsUntil() calls to return promptly instead of waiting out their current
+	// ~1 second deadline. Used both for shutdown (FinishEventLoop(), one per active
+	// worker) and for shrinking the worker pool at runtime (see IOThreadCount): the
+	// caller is expected to also be checking its own exit condition (e.g. a
+	// per-worker index against a target count) each time RunEventsUntil() returns, so
+	// it doesn't matter which specific worker happens to claim which FINISH event --
+	// any worker returning early gets a chance to notice it should exit.
+	void RequestWorkerExit(int count) {
 		if (!threadEnabled_) {
 			return;
 		}
 
 		std::lock_guard<std::recursive_mutex> guard(eventsLock_);
-		// Don't schedule a finish if it's not even running.
-		if (eventsRunning_) {
+		for (int i = 0; i < count; ++i) {
 			ScheduleEvent(IO_EVENT_FINISH);
 		}
 	}
 
 protected:
 	void ProcessEvent(AsyncIOEvent ref);
-	
+
 	inline void ProcessEventIfApplicable(AsyncIOEvent &ev, u64 &globalticks) {
 		switch (AsyncIOEventType(ev)) {
 		case IO_EVENT_FINISH:
@@ -264,9 +332,10 @@ private:
 	void EventResult(u32 handle, const AsyncIOResult &result);
 
 	bool threadEnabled_ = false;
-	bool eventsRunning_ = false;
+	int activeWorkers_ = 0;
 	bool eventsHaveRun_ = false;
 	std::deque<AsyncIOEvent> events_;
+	std::set<u32> busyHandles_;  // Handles currently being serviced by a worker thread.
 	std::recursive_mutex eventsLock_;  // TODO: Should really make this non-recursive - condition_variable_any is dangerous
 	std::condition_variable_any eventsWait_;
 	std::condition_variable_any eventsDrain_;

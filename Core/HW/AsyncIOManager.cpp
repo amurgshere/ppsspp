@@ -143,12 +143,22 @@ void AsyncIOManager::Write(u32 handle, const u8 *buf, size_t bytes) {
 }
 
 void AsyncIOManager::EventResult(u32 handle, const AsyncIOResult &result) {
-	std::lock_guard<std::mutex> guard(resultsLock_);
-	if (results_.find(handle) != results_.end()) {
-		ERROR_LOG_REPORT(Log::sceIo, "Overwriting previous result for file action on handle %d", handle);
+	{
+		std::lock_guard<std::mutex> guard(resultsLock_);
+		if (results_.find(handle) != results_.end()) {
+			ERROR_LOG_REPORT(Log::sceIo, "Overwriting previous result for file action on handle %d", handle);
+		}
+		results_[handle] = result;
+		resultsWait_.notify_one();
 	}
-	results_[handle] = result;
-	resultsWait_.notify_one();
+
+	if (threadEnabled_) {
+		std::lock_guard<std::recursive_mutex> guard(eventsLock_);
+		busyHandles_.erase(handle);
+		// Another worker may have been skipping a queued event for this handle, or
+		// waiting for a barrier that's now resolvable.
+		eventsWait_.notify_all();
+	}
 }
 
 void AsyncIOManager::DoState(PointerWrap &p) {

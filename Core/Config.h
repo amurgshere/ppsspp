@@ -202,6 +202,11 @@ public:
 
 	bool bFastMemory;
 	int iCpuCore;
+	// Number of background I/O worker threads to use for the current game. 0 means
+	// "Default": defer to the game's IOThreadCount compat.ini entry, if any, else 1
+	// (today's single I/O thread behavior). Can be changed while a game is running --
+	// see __IoRefreshThreadCount().
+	int iIOThreadCount;
 	bool bCheckForNewVersion;
 	bool bForceLagSync;
 	bool bFuncReplacements;

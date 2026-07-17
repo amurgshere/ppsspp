@@ -319,6 +319,24 @@ ISOFileSystem::TreeEntry *ISOFileSystem::GetFromPath(const std::string &path, bo
 	}
 }
 
+bool ISOFileSystem::GetOpenFileEntry(u32 handle, OpenFileEntry *out) {
+	std::lock_guard<std::mutex> guard(entriesMutex_);
+	EntryMap::iterator iter = entries.find(handle);
+	if (iter == entries.end()) {
+		return false;
+	}
+	*out = iter->second;
+	return true;
+}
+
+void ISOFileSystem::UpdateOpenFileEntry(u32 handle, const OpenFileEntry &updated) {
+	std::lock_guard<std::mutex> guard(entriesMutex_);
+	EntryMap::iterator iter = entries.find(handle);
+	if (iter != entries.end()) {
+		iter->second.seekPos = updated.seekPos;
+	}
+}
+
 int ISOFileSystem::OpenFile(std::string filename, FileAccess access, const char *devicename) {
 	OpenFileEntry entry;
 	entry.isRawSector = false;
@@ -354,7 +372,10 @@ int ISOFileSystem::OpenFile(std::string filename, FileAccess access, const char 
 		if (strncmp(devicename, "umd0:", 5) == 0 || strncmp(devicename, "umd1:", 5) == 0)
 			entry.isBlockSectorMode = true;
 
-		entries[newHandle] = entry;
+		{
+			std::lock_guard<std::mutex> guard(entriesMutex_);
+			entries[newHandle] = entry;
+		}
 		return newHandle;
 	}
 
@@ -370,11 +391,15 @@ int ISOFileSystem::OpenFile(std::string filename, FileAccess access, const char 
 	entry.seekPos = 0;
 
 	u32 newHandle = hAlloc->GetNewHandle();
-	entries[newHandle] = entry;
+	{
+		std::lock_guard<std::mutex> guard(entriesMutex_);
+		entries[newHandle] = entry;
+	}
 	return newHandle;
 }
 
 void ISOFileSystem::CloseFile(u32 handle) {
+	std::lock_guard<std::mutex> guard(entriesMutex_);
 	EntryMap::iterator iter = entries.find(handle);
 	if (iter != entries.end()) {
 		//CloseHandle((*iter).second.hFile);
@@ -387,23 +412,27 @@ void ISOFileSystem::CloseFile(u32 handle) {
 }
 
 bool ISOFileSystem::OwnsHandle(u32 handle) {
+	std::lock_guard<std::mutex> guard(entriesMutex_);
 	EntryMap::iterator iter = entries.find(handle);
 	return (iter != entries.end());
 }
 
 int ISOFileSystem::Ioctl(u32 handle, u32 cmd, u32 indataPtr, u32 inlen, u32 outdataPtr, u32 outlen, int &usec) {
-	EntryMap::iterator iter = entries.find(handle);
-	if (iter == entries.end()) {
-		ERROR_LOG(Log::FileSystem, "Ioctl on a bad file handle");
-		return SCE_KERNEL_ERROR_BADF;
+	bool isBlockSectorMode;
+	{
+		std::lock_guard<std::mutex> guard(entriesMutex_);
+		EntryMap::iterator iter = entries.find(handle);
+		if (iter == entries.end()) {
+			ERROR_LOG(Log::FileSystem, "Ioctl on a bad file handle");
+			return SCE_KERNEL_ERROR_BADF;
+		}
+		isBlockSectorMode = iter->second.isBlockSectorMode;
 	}
-
-	OpenFileEntry &e = iter->second;
 
 	switch (cmd) {
 	// Get ISO9660 volume descriptor (from open ISO9660 file.)
 	case 0x01020001:
-		if (e.isBlockSectorMode) {
+		if (isBlockSectorMode) {
 			ERROR_LOG(Log::FileSystem, "Unsupported read volume descriptor command on a umd block device");
 			return SCE_KERNEL_ERROR_ERRNO_FUNCTION_NOT_SUPPORTED;
 		}
@@ -419,7 +448,7 @@ int ISOFileSystem::Ioctl(u32 handle, u32 cmd, u32 indataPtr, u32 inlen, u32 outd
 
 	// Get ISO9660 path table (from open ISO9660 file.)
 	case 0x01020002:
-		if (e.isBlockSectorMode) {
+		if (isBlockSectorMode) {
 			ERROR_LOG(Log::FileSystem, "Unsupported read path table command on a umd block device");
 			return SCE_KERNEL_ERROR_ERRNO_FUNCTION_NOT_SUPPORTED;
 		}
@@ -451,6 +480,7 @@ int ISOFileSystem::Ioctl(u32 handle, u32 cmd, u32 indataPtr, u32 inlen, u32 outd
 }
 
 PSPDevType ISOFileSystem::DevType(u32 handle) {
+	std::lock_guard<std::mutex> guard(entriesMutex_);
 	EntryMap::iterator iter = entries.find(handle);
 	if (iter == entries.end())
 		return PSPDevType::FILE;
@@ -473,100 +503,111 @@ size_t ISOFileSystem::ReadFile(u32 handle, u8 *pointer, s64 size)
 }
 
 size_t ISOFileSystem::ReadFile(u32 handle, u8 *pointer, s64 size, int &usec) {
-	EntryMap::iterator iter = entries.find(handle);
-	if (iter != entries.end()) {
-		OpenFileEntry &e = iter->second;
+	// Grab a private copy of the entry so the actual (potentially slow) disc I/O below
+	// can run without holding entriesMutex_ -- that's what lets AsyncIOManager worker
+	// threads service different handles concurrently. Per-handle ordering is still
+	// guaranteed by AsyncIOManager itself (see busyHandles_ in AsyncIOManager.h), so
+	// there's never more than one ReadFile/WriteFile in flight for a given handle at once.
+	OpenFileEntry e;
+	if (!GetOpenFileEntry(handle, &e)) {
+		//This shouldn't happen...
+		ERROR_LOG(Log::FileSystem, "Hey, what are you doing? Reading non-open files?");
+		return 0;
+	}
 
-		if (size < 0) {
-			ERROR_LOG(Log::FileSystem, "Invalid read for %lld bytes from umd %s", size, e.file ? e.file->name.c_str() : "device");
-			return 0;
-		}
-		
-		if (e.isBlockSectorMode) {
-			// Whole sectors! Shortcut to this simple code.
-			blockDevice->ReadBlocks(e.seekPos, (int)size, pointer);
+	if (size < 0) {
+		ERROR_LOG(Log::FileSystem, "Invalid read for %lld bytes from umd %s", size, e.file ? e.file->name.c_str() : "device");
+		return 0;
+	}
+
+	if (e.isBlockSectorMode) {
+		// Whole sectors! Shortcut to this simple code.
+		blockDevice->ReadBlocks(e.seekPos, (int)size, pointer);
+		{
+			std::lock_guard<std::mutex> guard(entriesMutex_);
 			if (abs((int)lastReadBlock_ - (int)e.seekPos) > 100) {
 				// This is an estimate, sometimes it takes 1+ seconds, but it definitely takes time.
 				usec = 100000;
 			}
-			e.seekPos += (int)size;
-			lastReadBlock_ = e.seekPos;
-			return (int)size;
+			lastReadBlock_ = e.seekPos + (int)size;
 		}
+		e.seekPos += (int)size;
+		UpdateOpenFileEntry(handle, e);
+		return (int)size;
+	}
 
-		u64 positionOnIso;
-		s64 fileSize;
-		if (e.isRawSector) {
-			positionOnIso = e.sectorStart * 2048ULL + e.seekPos;
-			fileSize = (s64)e.openSize;
-		} else if (e.file == nullptr) {
-			ERROR_LOG(Log::FileSystem, "File no longer exists (loaded savestate with different ISO?)");
-			return 0;
+	u64 positionOnIso;
+	s64 fileSize;
+	if (e.isRawSector) {
+		positionOnIso = e.sectorStart * 2048ULL + e.seekPos;
+		fileSize = (s64)e.openSize;
+	} else if (e.file == nullptr) {
+		ERROR_LOG(Log::FileSystem, "File no longer exists (loaded savestate with different ISO?)");
+		return 0;
+	} else {
+		positionOnIso = e.file->startingPosition + e.seekPos;
+		fileSize = e.file->size;
+	}
+
+	if ((s64)e.seekPos > fileSize) {
+		WARN_LOG(Log::FileSystem, "Read starting outside of file, at %lld / %lld", (s64)e.seekPos, fileSize);
+		return 0;
+	}
+	if ((s64)e.seekPos + size > fileSize) {
+		// Clamp to the remaining size, but read what we can.
+		const s64 newSize = fileSize - (s64)e.seekPos;
+		// Reading beyond the file is really quite normal behavior (if return value handled correctly), so
+		// not doing WARN here.
+		if (newSize == 0) {
+			DEBUG_LOG(Log::FileSystem, "Attempted read at end of file, 0-size read simulated");
 		} else {
-			positionOnIso = e.file->startingPosition + e.seekPos;
-			fileSize = e.file->size;
+			DEBUG_LOG(Log::FileSystem, "Reading beyond end of file from seekPos %d, clamping size %lld to %lld", e.seekPos, size, newSize);
 		}
+		size = newSize;
+	}
 
-		if ((s64)e.seekPos > fileSize) {
-			WARN_LOG(Log::FileSystem, "Read starting outside of file, at %lld / %lld", (s64)e.seekPos, fileSize);
-			return 0;
-		}
-		if ((s64)e.seekPos + size > fileSize) {
-			// Clamp to the remaining size, but read what we can.
-			const s64 newSize = fileSize - (s64)e.seekPos;
-			// Reading beyond the file is really quite normal behavior (if return value handled correctly), so
-			// not doing WARN here.
-			if (newSize == 0) {
-				DEBUG_LOG(Log::FileSystem, "Attempted read at end of file, 0-size read simulated");
-			} else {
-				DEBUG_LOG(Log::FileSystem, "Reading beyond end of file from seekPos %d, clamping size %lld to %lld", e.seekPos, size, newSize);
-			}
-			size = newSize;
-		}
+	// Okay, we have size and position, let's rock.
+	const int firstBlockOffset = positionOnIso & 2047;
+	const int firstBlockSize = firstBlockOffset == 0 ? 0 : (int)std::min(size, 2048LL - firstBlockOffset);
+	const int lastBlockSize = (size - firstBlockSize) & 2047;
+	const s64 middleSize = size - firstBlockSize - lastBlockSize;
+	u32 secNum = (u32)(positionOnIso / 2048);
+	u8 theSector[2048];
 
-		// Okay, we have size and position, let's rock.
-		const int firstBlockOffset = positionOnIso & 2047;
-		const int firstBlockSize = firstBlockOffset == 0 ? 0 : (int)std::min(size, 2048LL - firstBlockOffset);
-		const int lastBlockSize = (size - firstBlockSize) & 2047;
-		const s64 middleSize = size - firstBlockSize - lastBlockSize;
-		u32 secNum = (u32)(positionOnIso / 2048);
-		u8 theSector[2048];
+	if ((middleSize & 2047) != 0) {
+		ERROR_LOG(Log::FileSystem, "Remaining size should be aligned");
+	}
 
-		if ((middleSize & 2047) != 0) {
-			ERROR_LOG(Log::FileSystem, "Remaining size should be aligned");
-		}
+	const u8 *const start = pointer;
+	if (firstBlockSize > 0) {
+		blockDevice->ReadBlock(secNum++, theSector);
+		memcpy(pointer, theSector + firstBlockOffset, firstBlockSize);
+		pointer += firstBlockSize;
+	}
+	if (middleSize > 0) {
+		const u32 sectors = (u32)(middleSize / 2048);
+		blockDevice->ReadBlocks(secNum, sectors, pointer);
+		secNum += sectors;
+		pointer += middleSize;
+	}
+	if (lastBlockSize > 0) {
+		blockDevice->ReadBlock(secNum++, theSector);
+		memcpy(pointer, theSector, lastBlockSize);
+		pointer += lastBlockSize;
+	}
 
-		const u8 *const start = pointer;
-		if (firstBlockSize > 0) {
-			blockDevice->ReadBlock(secNum++, theSector);
-			memcpy(pointer, theSector + firstBlockOffset, firstBlockSize);
-			pointer += firstBlockSize;
-		}
-		if (middleSize > 0) {
-			const u32 sectors = (u32)(middleSize / 2048);
-			blockDevice->ReadBlocks(secNum, sectors, pointer);
-			secNum += sectors;
-			pointer += middleSize;
-		}
-		if (lastBlockSize > 0) {
-			blockDevice->ReadBlock(secNum++, theSector);
-			memcpy(pointer, theSector, lastBlockSize);
-			pointer += lastBlockSize;
-		}
-
-		size_t totalBytes = pointer - start;
+	size_t totalBytes = pointer - start;
+	{
+		std::lock_guard<std::mutex> guard(entriesMutex_);
 		if (abs((int)lastReadBlock_ - (int)secNum) > 100) {
 			// This is an estimate, sometimes it takes 1+ seconds, but it definitely takes time.
 			usec = 100000;
 		}
 		lastReadBlock_ = secNum;
-		e.seekPos += (unsigned int)totalBytes;
-		return (size_t)totalBytes;
-	} else {
-		//This shouldn't happen...
-		ERROR_LOG(Log::FileSystem, "Hey, what are you doing? Reading non-open files?");
-		return 0;
 	}
+	e.seekPos += (unsigned int)totalBytes;
+	UpdateOpenFileEntry(handle, e);
+	return (size_t)totalBytes;
 }
 
 size_t ISOFileSystem::WriteFile(u32 handle, const u8 *pointer, s64 size) {
@@ -580,6 +621,7 @@ size_t ISOFileSystem::WriteFile(u32 handle, const u8 *pointer, s64 size, int &us
 }
 
 size_t ISOFileSystem::SeekFile(u32 handle, s32 position, FileMove type) {
+	std::lock_guard<std::mutex> guard(entriesMutex_);
 	EntryMap::iterator iter = entries.find(handle);
 	if (iter != entries.end()) {
 		OpenFileEntry &e = iter->second;
@@ -639,10 +681,16 @@ PSPFileInfo ISOFileSystem::GetFileInfo(std::string filename) {
 }
 
 PSPFileInfo ISOFileSystem::GetFileInfoByHandle(u32 handle) {
-	auto iter = entries.find(handle);
+	const TreeEntry *entry = nullptr;
+	{
+		std::lock_guard<std::mutex> guard(entriesMutex_);
+		auto iter = entries.find(handle);
+		if (iter != entries.end()) {
+			entry = iter->second.file;
+		}
+	}
 	PSPFileInfo x;
-	if (iter != entries.end()) {
-		const TreeEntry *entry = iter->second.file;
+	if (entry) {
 		x.name = entry->name;
 		// Strangely, it seems to be executable even for files.
 		x.access = 0555;
@@ -728,6 +776,8 @@ ISOFileSystem::TreeEntry::~TreeEntry() {
 }
 
 void ISOFileSystem::DoState(PointerWrap &p) {
+	std::lock_guard<std::mutex> guard(entriesMutex_);
+
 	auto s = p.Section("ISOFileSystem", 1, 2);
 	if (!s)
 		return;

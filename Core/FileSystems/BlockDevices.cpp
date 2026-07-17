@@ -16,7 +16,9 @@
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
+#include <unordered_map>
 
 #include "Common/Data/Text/I18n.h"
 #include "Common/System/OSD.h"
@@ -148,8 +150,10 @@ typedef struct ciso_header
 
 static const u32 CSO_READ_BUFFER_SIZE = 256 * 1024;
 
+static std::atomic<u64> g_cisoNextInstanceId{ 1 };
+
 CISOFileBlockDevice::CISOFileBlockDevice(FileLoader *fileLoader)
-	: BlockDevice(fileLoader)
+	: BlockDevice(fileLoader), instanceId_(g_cisoNextInstanceId.fetch_add(1))
 {
 	// CISO format is fairly simple, but most tools do not write the header_size.
 
@@ -183,14 +187,6 @@ CISOFileBlockDevice::CISOFileBlockDevice(FileLoader *fileLoader)
 	numFrames = (u32)((totalSize + frameSize - 1) / frameSize);
 	numBlocks = (u32)(totalSize / GetBlockSize());
 	VERBOSE_LOG(Log::Loader, "CSO numBlocks=%i numFrames=%i align=%i", numBlocks, numFrames, indexShift);
-
-	// We might read a bit of alignment too, so be prepared.
-	if (frameSize + (1 << indexShift) < CSO_READ_BUFFER_SIZE)
-		readBuffer = new u8[CSO_READ_BUFFER_SIZE];
-	else
-		readBuffer = new u8[frameSize + (1 << indexShift)];
-	zlibBuffer = new u8[frameSize + (1 << indexShift)];
-	zlibBufferFrame = numFrames;
 
 	const u32 indexSize = numFrames + 1;
 	const size_t headerEnd = hdr.ver > 1 ? (size_t)hdr.header_size : sizeof(hdr);
@@ -234,8 +230,20 @@ CISOFileBlockDevice::CISOFileBlockDevice(FileLoader *fileLoader)
 CISOFileBlockDevice::~CISOFileBlockDevice()
 {
 	delete [] index;
-	delete [] readBuffer;
-	delete [] zlibBuffer;
+}
+
+CISOFileBlockDevice::ThreadScratch &CISOFileBlockDevice::GetThreadScratch() {
+	thread_local std::unordered_map<u64, ThreadScratch> scratchByInstance;
+	auto it = scratchByInstance.find(instanceId_);
+	if (it == scratchByInstance.end()) {
+		ThreadScratch s;
+		const size_t readBufSize = std::max((size_t)CSO_READ_BUFFER_SIZE, (size_t)frameSize + (1u << indexShift));
+		s.readBuffer.resize(readBufSize);
+		s.zlibBuffer.resize((size_t)frameSize + (1u << indexShift));
+		s.zlibBufferFrame = numFrames;
+		it = scratchByInstance.emplace(instanceId_, std::move(s)).first;
+	}
+	return it->second;
 }
 
 bool CISOFileBlockDevice::ReadBlock(int blockNumber, u8 *outPtr, bool uncached)
@@ -246,6 +254,7 @@ bool CISOFileBlockDevice::ReadBlock(int blockNumber, u8 *outPtr, bool uncached)
 		return false;
 	}
 
+	ThreadScratch &scratch = GetThreadScratch();
 	const u32 frameNumber = blockNumber >> blockShift;
 	const u32 idx = index[frameNumber];
 	const u32 indexPos = idx & 0x7FFFFFFF;
@@ -266,11 +275,11 @@ bool CISOFileBlockDevice::ReadBlock(int blockNumber, u8 *outPtr, bool uncached)
 		int readSize = (u32)fileLoader_->ReadAt(compressedReadPos + compressedOffset, 1, GetBlockSize(), outPtr, flags);
 		if (readSize < GetBlockSize())
 			memset(outPtr + readSize, 0, GetBlockSize() - readSize);
-	} else if (zlibBufferFrame == frameNumber) {
+	} else if (scratch.zlibBufferFrame == frameNumber) {
 		// We already have it.  Just apply the offset and copy.
-		memcpy(outPtr, zlibBuffer + compressedOffset, GetBlockSize());
+		memcpy(outPtr, scratch.zlibBuffer.data() + compressedOffset, GetBlockSize());
 	} else {
-		const u32 readSize = (u32)fileLoader_->ReadAt(compressedReadPos, 1, compressedReadSize, readBuffer, flags);
+		const u32 readSize = (u32)fileLoader_->ReadAt(compressedReadPos, 1, compressedReadSize, scratch.readBuffer.data(), flags);
 
 		z.zalloc = Z_NULL;
 		z.zfree = Z_NULL;
@@ -281,9 +290,9 @@ bool CISOFileBlockDevice::ReadBlock(int blockNumber, u8 *outPtr, bool uncached)
 			return false;
 		}
 		z.avail_in = readSize;
-		z.next_out = frameSize == (u32)GetBlockSize() ? outPtr : zlibBuffer;
+		z.next_out = frameSize == (u32)GetBlockSize() ? outPtr : scratch.zlibBuffer.data();
 		z.avail_out = frameSize;
-		z.next_in = readBuffer;
+		z.next_in = scratch.readBuffer.data();
 
 		int status = inflate(&z, Z_FINISH);
 		if (status != Z_STREAM_END) {
@@ -303,8 +312,8 @@ bool CISOFileBlockDevice::ReadBlock(int blockNumber, u8 *outPtr, bool uncached)
 		inflateEnd(&z);
 
 		if (frameSize != (u32)GetBlockSize()) {
-			zlibBufferFrame = frameNumber;
-			memcpy(outPtr, zlibBuffer + compressedOffset, GetBlockSize());
+			scratch.zlibBufferFrame = frameNumber;
+			memcpy(outPtr, scratch.zlibBuffer.data() + compressedOffset, GetBlockSize());
 		}
 	}
 	return true;
@@ -336,6 +345,7 @@ bool CISOFileBlockDevice::ReadBlocks(u32 minBlock, int count, u8 *outPtr) {
 		return false;
 	}
 
+	ThreadScratch &scratch = GetThreadScratch();
 	u64 readBufferStart = 0;
 	u64 readBufferEnd = 0;
 	u32 block = minBlock;
@@ -355,22 +365,22 @@ bool CISOFileBlockDevice::ReadBlocks(u32 minBlock, int count, u8 *outPtr) {
 			const s64 maxNeeded = totalReadEnd - frameReadPos;
 			const size_t chunkSize = (size_t)std::min(maxNeeded, (s64)std::max(frameReadSize, CSO_READ_BUFFER_SIZE));
 
-			const u32 readSize = (u32)fileLoader_->ReadAt(frameReadPos, 1, chunkSize, readBuffer);
+			const u32 readSize = (u32)fileLoader_->ReadAt(frameReadPos, 1, chunkSize, scratch.readBuffer.data());
 			if (readSize < chunkSize) {
-				memset(readBuffer + readSize, 0, chunkSize - readSize);
+				memset(scratch.readBuffer.data() + readSize, 0, chunkSize - readSize);
 			}
 
 			readBufferStart = frameReadPos;
 			readBufferEnd = frameReadPos + readSize;
 		}
 
-		u8 *rawBuffer = &readBuffer[frameReadPos - readBufferStart];
+		u8 *rawBuffer = &scratch.readBuffer[frameReadPos - readBufferStart];
 		const int plain = idx & 0x80000000;
 		if (plain) {
 			memcpy(outPtr, rawBuffer + frameBlockOffset * GetBlockSize(), frameBlocks * GetBlockSize());
 		} else {
 			z.avail_in = frameReadSize;
-			z.next_out = frameBlocks == blocksPerFrame ? outPtr : zlibBuffer;
+			z.next_out = frameBlocks == blocksPerFrame ? outPtr : scratch.zlibBuffer.data();
 			z.avail_out = frameSize;
 			z.next_in = rawBuffer;
 
@@ -384,9 +394,9 @@ bool CISOFileBlockDevice::ReadBlocks(u32 minBlock, int count, u8 *outPtr) {
 				NotifyReadError();
 				memset(outPtr, 0, frameBlocks * GetBlockSize());
 			} else if (frameBlocks != blocksPerFrame) {
-				memcpy(outPtr, zlibBuffer + frameBlockOffset * GetBlockSize(), frameBlocks * GetBlockSize());
+				memcpy(outPtr, scratch.zlibBuffer.data() + frameBlockOffset * GetBlockSize(), frameBlocks * GetBlockSize());
 				// In case we end up reusing it in a single read later.
-				zlibBufferFrame = frame;
+				scratch.zlibBufferFrame = frame;
 			}
 
 			inflateReset(&z);

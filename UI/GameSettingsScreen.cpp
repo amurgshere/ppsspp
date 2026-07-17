@@ -83,6 +83,7 @@
 #include "Core/Instance.h"
 #include "Core/System.h"
 #include "Core/Reporting.h"
+#include "Core/HLE/sceIo.h"
 #include "Core/HLE/sceUsbCam.h"
 #include "Core/HLE/sceUsbMic.h"
 #include "Core/HLE/sceUtility.h"
@@ -1456,6 +1457,14 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 
 	static const char *ioTimingMethods[] = { "Fast (lag on slow storage)", "Host (bugs, less lag)", "Simulate UMD delays", "Simulate UMD slow reading speed"};
 	View *ioTimingMethod = systemSettings->Add(new PopupMultiChoice(&g_Config.iIOTimingMethod, sy->T("I/O timing method"), ioTimingMethods, 0, ARRAY_SIZE(ioTimingMethods), I18NCat::SYSTEM, screenManager()));
+
+	static const char *ioThreadCountChoices[] = { "Default", "1", "2", "3", "4" };
+	PopupMultiChoice *ioThreadCount = systemSettings->Add(new PopupMultiChoice(&g_Config.iIOThreadCount, sy->T("I/O worker threads"), ioThreadCountChoices, 0, ARRAY_SIZE(ioThreadCountChoices), I18NCat::SYSTEM, screenManager()));
+	ioThreadCount->OnChoice.Add([](UI::EventParams &) {
+		// Takes effect immediately -- grows or shrinks the live worker pool rather
+		// than requiring a restart. See __IoRefreshThreadCount().
+		__IoRefreshThreadCount();
+	});
 	systemSettings->Add(new CheckBox(&g_Config.bForceLagSync, sy->T("Force real clock sync (slower, less lag)")))->SetDisabledPtr(&g_Config.bAutoFrameSkip);
 	PopupSliderChoice *lockedMhz = systemSettings->Add(new PopupSliderChoice(&g_Config.iLockedCPUSpeed, 0, 1000, 0, sy->T("Change CPU Clock", "Change CPU Clock (unstable)"), screenManager(), sy->T("MHz, 0:default")));
 	lockedMhz->OnChange.Add([&](UI::EventParams &) {

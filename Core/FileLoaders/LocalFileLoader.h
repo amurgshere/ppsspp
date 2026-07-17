@@ -17,7 +17,14 @@
 
 #pragma once
 
+#include "ppsspp_config.h"
+
 #include <mutex>
+
+#if PPSSPP_PLATFORM(SWITCH)
+#include <memory>
+#include <vector>
+#endif
 
 #include "Common/CommonTypes.h"
 #include "Common/File/Path.h"
@@ -46,6 +53,17 @@ public:
 	}
 	size_t ReadAt(s64 absolutePos, size_t bytes, size_t count, void *data, Flags flags = Flags::NONE) override;
 
+#if PPSSPP_PLATFORM(SWITCH)
+	// libnx has no pread, so normally every ReadAt() serializes behind readLock_ below.
+	// PrepareConcurrency() opens additional independent file descriptors to the same
+	// path (each with its own lock) so concurrent AsyncIOManager worker threads (see
+	// the IOThreadCount compat/config setting) can actually read concurrently instead
+	// of just taking turns. Safe to call more than once (e.g. if the setting is raised
+	// again at runtime) -- it only ever grows the pool, never shrinks it, since a read
+	// could be in flight on a handle we might otherwise want to close.
+	void PrepareConcurrency(int hintThreads) override;
+#endif
+
 private:
 #if !defined(_WIN32) && !defined(HAVE_LIBRETRO_VFS)
 	void DetectSizeFd();
@@ -57,4 +75,13 @@ private:
 	Path filename_;
 	std::mutex readLock_;
 	bool isOpenedByFd_ = false;
+
+#if PPSSPP_PLATFORM(SWITCH)
+	struct ExtraHandle {
+		int fd = -1;
+		std::mutex lock;
+	};
+	std::mutex extraHandlesMutex_;  // Guards growing extraHandles_ itself, not the reads.
+	std::vector<std::unique_ptr<ExtraHandle>> extraHandles_;
+#endif
 };

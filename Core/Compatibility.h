@@ -121,6 +121,7 @@ struct CompatFlags {
 	bool MsgDialogAutoStatus;
 	float SpriteBorderFix;
 	bool DisableSmart2DTexFiltering;
+	int IOThreadCount;
 };
 
 struct VRCompat {

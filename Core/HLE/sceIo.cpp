@@ -18,6 +18,8 @@
 #include <algorithm> // std::remove
 #include <cstdlib>
 #include <set>
+#include <atomic>
+#include <mutex>
 #include <thread>
 #include <memory>
 
@@ -37,6 +39,7 @@
 #include "Core/Debugger/MemBlockInfo.h"
 #include "Core/ELF/ParamSFO.h"
 #include "Core/MemMapHelpers.h"
+#include "Core/Loaders.h"
 #include "Core/System.h"
 #include "Core/HDRemaster.h"
 #include "Core/SaveState.h"
@@ -141,7 +144,17 @@ static MemStickFatState lastMemStickFatState;
 
 static AsyncIOManager ioManager;
 static bool ioManagerThreadEnabled = false;
-static std::thread ioManagerThread;
+static std::vector<std::thread> ioManagerThreads;
+// Workers with index >= this should exit next time their RunEventsUntil() call
+// returns (see __IoManagerThread). Only ever touched (read or written) while holding
+// ioManagerThreadsMutex, so growing/shrinking the pool can't race a settings change
+// against __IoInit/__IoShutdown.
+static std::atomic<int> ioThreadTargetCount{ 1 };
+static std::mutex ioManagerThreadsMutex;
+
+// Clamp so a bad hand-edited compat.ini value or user setting can't spawn an
+// unreasonable number of I/O worker threads.
+static const int MAX_IO_THREAD_COUNT = 4;
 
 // TODO: Is it better to just put all on the thread?
 // Let's try. (was 256)
@@ -580,14 +593,86 @@ static void __IoAsyncEndCallback(SceUID threadID, SceUID prevCallbackId) {
 	}
 }
 
-static void __IoManagerThread() {
+static void __IoManagerThread(int workerIndex) {
 	SetCurrentThreadName("IO");
-	INFO_LOG(Log::sceIo, "Entering __IoManagerThread");
+	INFO_LOG(Log::sceIo, "Entering __IoManagerThread %d", workerIndex);
 	AndroidJNIThreadContext jniContext;
-	while (ioManagerThreadEnabled) {
+	while (ioManagerThreadEnabled && workerIndex < ioThreadTargetCount.load()) {
 		ioManager.RunEventsUntil(CoreTiming::GetTicks() + msToCycles(1000));
 	}
-	INFO_LOG(Log::sceIo, "Leaving __IoManagerThread");
+	INFO_LOG(Log::sceIo, "Leaving __IoManagerThread %d", workerIndex);
+}
+
+static int ClampIOThreadCount(int count) {
+	if (count < 1) {
+		return 1;
+	} else if (count > MAX_IO_THREAD_COUNT) {
+		return MAX_IO_THREAD_COUNT;
+	}
+	return count;
+}
+
+int GetEffectiveIOThreadCount() {
+	// 0 ("Default") means: defer to whatever compat.ini says for this game (0 if it
+	// has no IOThreadCount entry either, which clamps up to the single-thread default).
+	int fromSetting = g_Config.iIOThreadCount;
+	if (fromSetting > 0) {
+		return ClampIOThreadCount(fromSetting);
+	}
+	return ClampIOThreadCount(PSP_CoreParameter().compat.flags().IOThreadCount);
+}
+
+// Grows or shrinks ioManagerThreads to match newTarget. Must be called with
+// ioManagerThreadsMutex held.
+static void ApplyIOThreadCountLocked(int newTarget) {
+	newTarget = ClampIOThreadCount(newTarget);
+	const int oldTarget = ioThreadTargetCount.exchange(newTarget);
+	if (newTarget == oldTarget || !ioManagerThreadEnabled) {
+		return;
+	}
+
+	if (newTarget > (int)ioManagerThreads.size()) {
+		// Grow: spawn the additional workers immediately.
+		for (int i = (int)ioManagerThreads.size(); i < newTarget; ++i) {
+			ioManagerThreads.emplace_back(&__IoManagerThread, i);
+		}
+	} else if (newTarget < oldTarget) {
+		// Shrink: nudge enough workers to promptly re-check their index against the
+		// new (lower) target and exit, then join and drop the now-finished tail
+		// threads. Workers with index >= newTarget are the ones expected to exit.
+		//
+		// A FINISH marker can be claimed by *any* alive worker, not necessarily an
+		// excess one (see RequestWorkerExit) -- so scheduling only removedCount
+		// markers isn't enough: a surviving worker can steal one, leaving an excess
+		// worker with nothing left to wake it. It would then rely on its own ~1s
+		// natural deadline, which never arrives while the game is paused (CoreTiming
+		// is frozen), hanging the join() below forever. Scheduling one marker per
+		// currently-alive worker guarantees every worker gets a chance to wake and
+		// recheck its own exit condition, mirroring FinishEventLoop()'s full-shutdown
+		// use of RequestWorkerExit(activeWorkers_).
+		ioManager.RequestWorkerExit((int)ioManagerThreads.size());
+		for (int i = newTarget; i < (int)ioManagerThreads.size(); ++i) {
+			if (ioManagerThreads[i].joinable()) {
+				ioManagerThreads[i].join();
+			}
+		}
+		ioManagerThreads.resize(newTarget);
+	}
+}
+
+void __IoRefreshThreadCount() {
+	int newTarget = GetEffectiveIOThreadCount();
+	{
+		std::lock_guard<std::mutex> guard(ioManagerThreadsMutex);
+		ApplyIOThreadCountLocked(newTarget);
+	}
+
+	// If we're raising the count, give the loader a chance to open any additional
+	// handles it needs for real concurrency (only matters on Switch -- see
+	// LocalFileLoader::PrepareConcurrency; harmless no-op everywhere else).
+	if (FileLoader *loadedFile = PSP_GetLoadedFile()) {
+		loadedFile->PrepareConcurrency(newTarget);
+	}
 }
 
 static void __IoWakeManager(CoreLifecycle stage) {
@@ -692,7 +777,12 @@ void __IoInit() {
 	ioManagerThreadEnabled = true;
 	ioManager.SetThreadEnabled(true);
 	Core_ListenLifecycle(&__IoWakeManager);
-	ioManagerThread = std::thread(&__IoManagerThread);
+	{
+		std::lock_guard<std::mutex> guard(ioManagerThreadsMutex);
+		// Force a spawn even though the target may already read 1 from a previous run.
+		ioThreadTargetCount.store(0);
+		ApplyIOThreadCountLocked(GetEffectiveIOThreadCount());
+	}
 
 	__KernelRegisterWaitTypeFuncs(WAITTYPE_ASYNCIO, __IoAsyncBeginCallback, __IoAsyncEndCallback);
 
@@ -771,13 +861,20 @@ void __IoDoState(PointerWrap &p) {
 }
 
 void __IoShutdown() {
+	std::lock_guard<std::mutex> guard(ioManagerThreadsMutex);
 	ioManagerThreadEnabled = false;
+	ioThreadTargetCount.store(0);
 	ioManager.SyncThread();
 	ioManager.FinishEventLoop();
-	if (ioManagerThread.joinable()) {
-		ioManagerThread.join();
+	for (std::thread &t : ioManagerThreads) {
+		if (t.joinable()) {
+			t.join();
+		}
+	}
+	if (!ioManagerThreads.empty()) {
 		ioManager.Shutdown();
 	}
+	ioManagerThreads.clear();
 
 	for (int i = 0; i < PSP_COUNT_FDS; ++i) {
 		asyncParams[i].op = IoAsyncOp::NONE;

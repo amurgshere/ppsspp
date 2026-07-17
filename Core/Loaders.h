@@ -99,6 +99,13 @@ public:
 	virtual std::string LatestError() const {
 		return "";
 	}
+
+	// Hint that up to hintThreads callers may call ReadAt() concurrently (see the
+	// IOThreadCount compat/config setting). Most implementations already support
+	// concurrent ReadAt() (positional reads on POSIX/Windows) and can ignore this;
+	// it only matters where the backing implementation would otherwise have to
+	// serialize all reads behind a single OS handle (see LocalFileLoader on Switch).
+	virtual void PrepareConcurrency(int hintThreads) {}
 };
 
 class ProxiedFileLoader : public FileLoader {
@@ -131,6 +138,9 @@ public:
 	}
 	std::string LatestError() const override {
 		return backend_->LatestError();
+	}
+	void PrepareConcurrency(int hintThreads) override {
+		backend_->PrepareConcurrency(hintThreads);
 	}
 	size_t ReadAt(s64 absolutePos, size_t bytes, size_t count, void *data, Flags flags = Flags::NONE) override {
 		return backend_->ReadAt(absolutePos, bytes, count, data, flags);
