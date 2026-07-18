@@ -2124,6 +2124,8 @@ set(GPU_SOURCES
 	GPU/Common/IndexGenerator.h
 	GPU/Common/TextureDecoder.cpp
 	GPU/Common/TextureDecoder.h
+	GPU/Common/AsyncTextureDecode.cpp
+	GPU/Common/AsyncTextureDecode.h
 	GPU/Common/TextureCacheCommon.cpp
 	GPU/Common/TextureCacheCommon.h
 	GPU/Common/TextureScalerCommon.cpp

@@ -21,6 +21,10 @@ static std::atomic<int64_t> g_texBuildUs{0};
 static std::atomic<int> g_texBuildCount{0};
 static std::atomic<int64_t> g_gpuSyncWaitUs{0};
 
+// NOT reset per-frame by ResetFrameAccumulators() -- this reflects live decode-queue depth,
+// not a single frame's activity. See AdjustPendingDecodeCount's doc comment in the header.
+static std::atomic<int> g_pendingDecodeCount{0};
+
 // The worst single lock wait this frame. Lock name pointers are always to
 // string-literal storage (see call sites), so it's safe to store and log the raw
 // pointer without a mutex -- only the numeric "is this the new worst" comparison
@@ -67,6 +71,12 @@ void AddGpuSyncWait(double elapsedMs) {
 	g_gpuSyncWaitUs.fetch_add(MsToUs(elapsedMs), std::memory_order_relaxed);
 }
 
+void AdjustPendingDecodeCount(int delta) {
+	if (!IsEnabled())
+		return;
+	g_pendingDecodeCount.fetch_add(delta, std::memory_order_relaxed);
+}
+
 void AddLockWait(const char *lockName, double elapsedMs) {
 	if (!IsEnabled())
 		return;
@@ -101,12 +111,13 @@ void Tick(bool didDrop, double budgetMs, double actualMs, double gpuMs, double c
 
 	if (didDrop) {
 		WARN_LOG(Log::Stutter,
-			"Frame %.1fms (target %.1fms): IO=%lldB/%.1fms(%dops) ioThreadBusy=%.1fms texWait=%.1fms(%d still pending) texBuild=%.1fms(%dtex) gpuSyncWait=%.1fms worstLock=%.1fms(%s) gpu=%.1fms cpu=%.1fms",
+			"Frame %.1fms (target %.1fms): IO=%lldB/%.1fms(%dops) ioThreadBusy=%.1fms texWait=%.1fms(%d still pending) texBuild=%.1fms(%dtex) asyncDecodesPending=%d gpuSyncWait=%.1fms worstLock=%.1fms(%s) gpu=%.1fms cpu=%.1fms",
 			actualMs, budgetMs,
 			(long long)g_ioBytes.load(std::memory_order_relaxed), g_ioTimeUs.load(std::memory_order_relaxed) / 1000.0, g_ioOpCount.load(std::memory_order_relaxed),
 			g_ioThreadBusyUs.load(std::memory_order_relaxed) / 1000.0,
 			g_texAsyncWaitUs.load(std::memory_order_relaxed) / 1000.0, g_texStillPendingCount.load(std::memory_order_relaxed),
 			g_texBuildUs.load(std::memory_order_relaxed) / 1000.0, g_texBuildCount.load(std::memory_order_relaxed),
+			g_pendingDecodeCount.load(std::memory_order_relaxed),
 			g_gpuSyncWaitUs.load(std::memory_order_relaxed) / 1000.0,
 			g_worstLockWaitUs.load(std::memory_order_relaxed) / 1000.0, g_worstLockName.load(std::memory_order_relaxed),
 			gpuMs, cpuMs);

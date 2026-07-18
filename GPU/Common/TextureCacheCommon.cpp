@@ -36,6 +36,7 @@
 #include "Core/Debugger/MemBlockInfo.h"
 #include "Core/System.h"
 #include "Core/HW/Display.h"
+#include "GPU/Common/AsyncTextureDecode.h"
 #include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/TextureCacheCommon.h"
 #include "GPU/Common/TextureDecoder.h"
@@ -86,6 +87,38 @@
 // GL_UNSIGNED_SHORT_1555: BBBBBGGGGGRRRRRA  (1-bit rotation)
 // GL_UNSIGNED_BYTE/RGBA:  AAAAAAAABBBBBBBBGGGGGGGGRRRRRRRR  (match)
 // These are Data::Format:: B4G4R4A4_PACK16, B5G6R6_PACK16, B5G5R5A1_PACK16, R8G8B8A8
+
+// Value-initialization (`new TexCacheEntry{}`) only zero-inits members first when the default
+// constructor is NOT user-provided. Declaring this out-of-line (required so pendingDecode's
+// unique_ptr<PendingTextureDecode> isn't instantiated in every TU including this header, see
+// the header comment) makes it user-provided even with `= default`, so every field below must
+// be listed explicitly or it's left as indeterminate garbage instead of zero.
+TexCacheEntry::TexCacheEntry()
+	: status(0), addr(0), minihash(0), format(0), maxLevel(0), dim(0), bufw(0), texturePtr(nullptr),
+#ifdef _WIN32
+	  textureView(nullptr),
+#endif
+	  invalidHint(0), lastFrame(0), numFrames(0), numInvalidated(0), framesUntilNextFullHash(0),
+	  fullhash(0), cluthash(0), maxSeenV(0), replacedTexture(nullptr) {
+}
+
+TexCacheEntry::TexCacheEntry(const TexCacheEntry &other)
+	: status(other.status), addr(other.addr), minihash(other.minihash), format(other.format),
+	  maxLevel(other.maxLevel), dim(other.dim), bufw(other.bufw), texturePtr(other.texturePtr),
+#ifdef _WIN32
+	  textureView(other.textureView),
+#endif
+	  invalidHint(other.invalidHint), lastFrame(other.lastFrame), numFrames(other.numFrames),
+	  numInvalidated(other.numInvalidated), framesUntilNextFullHash(other.framesUntilNextFullHash),
+	  fullhash(other.fullhash), cluthash(other.cluthash), maxSeenV(other.maxSeenV),
+	  replacedTexture(other.replacedTexture) {
+	_dbg_assert_(!other.pendingDecode);
+}
+
+TexCacheEntry::~TexCacheEntry() {
+	if (texturePtr || textureName || vkTex)
+		Crash();
+}
 
 TextureCacheCommon::TextureCacheCommon(Draw::DrawContext *draw, Draw2D *draw2D)
 	: draw_(draw), draw2D_(draw2D), replacer_(draw) {
@@ -828,6 +861,10 @@ void TextureCacheCommon::Decimate(TexCacheEntry *exceptThisOne, bool forcePressu
 			bool hasClut = (iter->second->status & TexCacheEntry::STATUS_CLUT_VARIANTS) != 0;
 			int killAge = hasClut ? TEXTURE_KILL_AGE_CLUT : killAgeBase;
 			if (iter->second->lastFrame + killAge < gpuStats.numFlips) {
+				// TEMPORARY diagnostic for the async-decode gray-flash investigation -- remove
+				// once the eviction-recreation hypothesis is confirmed or ruled out.
+				WARN_LOG(Log::G3D, "GRAYFLASH evict addr=%08x hasClut=%d killAge=%d idleFrames=%d curFrame=%d",
+					iter->second->addr, hasClut ? 1 : 0, killAge, gpuStats.numFlips - iter->second->lastFrame, gpuStats.numFlips);
 				DeleteTexture(iter++);
 			} else {
 				++iter;
@@ -1752,7 +1789,7 @@ static void Expand4To8Bits(u8 *dest, const u8 *src, int srcWidth) {
 	}
 }
 
-CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, GETextureFormat format, GEPaletteFormat clutformat, uint32_t texaddr, int level, int bufw, TexDecodeFlags flags) {
+CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, GETextureFormat format, GEPaletteFormat clutformat, const u8 *texptr, uint32_t texaddr, int w, int h, int level, int bufw, TexDecodeFlags flags, const DecodeGStateSnapshot &gs, DecodeScratch &scratch) {
 	u32 alphaSum = 0xFFFFFFFF;
 	u32 fullAlphaMask = 0x0;
 
@@ -1764,7 +1801,7 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 		_dbg_assert_(false);
 	}
 
-	bool swizzled = gstate.isTextureSwizzled();
+	bool swizzled = gs.swizzled;
 	if ((texaddr & 0x00600000) != 0 && Memory::IsVRAMAddress(texaddr)) {
 		// This means it's in a mirror, possibly a swizzled mirror.  Let's report.
 		WARN_LOG_REPORT_ONCE(texmirror, Log::G3D, "Decoding texture from VRAM mirror at %08x swizzle=%d", texaddr, swizzled ? 1 : 0);
@@ -1776,9 +1813,6 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 		// Note that (texaddr & 0x00600000) == 0x00600000 is very likely to be depth texturing.
 	}
 
-	int w = gstate.getTextureWidth(level);
-	int h = gstate.getTextureHeight(level);
-	const u8 *texptr = Memory::GetPointer(texaddr);
 	const uint32_t byteSize = (textureBitsPerPixel[format] * bufw * h) / 8;
 
 	char buf[128];
@@ -1788,13 +1822,13 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 	switch (format) {
 	case GE_TFMT_CLUT4:
 	{
-		const bool mipmapShareClut = gstate.isClutSharedForMipmaps();
+		const bool mipmapShareClut = gs.clutSharedForMipmaps;
 		const int clutSharingOffset = mipmapShareClut ? 0 : level * 16;
 
 		if (swizzled) {
-			tmpTexBuf32_.resize(bufw * ((h + 7) & ~7));
-			UnswizzleFromMem(tmpTexBuf32_.data(), bufw / 2, texptr, bufw, h, 0);
-			texptr = (u8 *)tmpTexBuf32_.data();
+			(*scratch.unswizzleBuf).resize(bufw * ((h + 7) & ~7));
+			UnswizzleFromMem((*scratch.unswizzleBuf).data(), bufw / 2, texptr, bufw, h, 0);
+			texptr = (u8 *)(*scratch.unswizzleBuf).data();
 		}
 
 		if (toClut8) {
@@ -1813,37 +1847,37 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 		{
 			// The w > 1 check is to not need a case that handles a single pixel
 			// in DeIndexTexture4Optimal<u16>.
-			if (clutAlphaLinear_ && mipmapShareClut && !expandTo32bit && w >= 4) {
-				// We don't bother with fullalpha here (clutAlphaLinear_)
+			if (gs.clutAlphaLinear && mipmapShareClut && !expandTo32bit && w >= 4) {
+				// We don't bother with fullalpha here (clutAlphaLinear)
 				// Here, reverseColors means the CLUT is already reversed.
 				if (reverseColors) {
 					for (int y = 0; y < h; ++y) {
-						DeIndexTexture4Optimal((u16 *)(out + outPitch * y), texptr + (bufw * y) / 2, w, clutAlphaLinearColor_);
+						DeIndexTexture4Optimal((u16 *)(out + outPitch * y), texptr + (bufw * y) / 2, w, gs.clutAlphaLinearColor);
 					}
 				} else {
 					for (int y = 0; y < h; ++y) {
-						DeIndexTexture4OptimalRev((u16 *)(out + outPitch * y), texptr + (bufw * y) / 2, w, clutAlphaLinearColor_);
+						DeIndexTexture4OptimalRev((u16 *)(out + outPitch * y), texptr + (bufw * y) / 2, w, gs.clutAlphaLinearColor);
 					}
 				}
 			} else {
 				// Need to have the "un-reversed" (raw) CLUT here since we are using a generic conversion function.
 				if (expandTo32bit) {
 					// We simply expand the CLUT to 32-bit, then we deindex as usual. Probably the fastest way.
-					const u16 *clut = GetCurrentRawClut<u16>() + clutSharingOffset;
-					const int clutStart = gstate.getClutIndexStartPos();
-					if (gstate.getClutIndexShift() == 0 || gstate.getClutIndexMask() <= 16) {
-						ConvertFormatToRGBA8888(clutformat, expandClut_ + clutStart, clut + clutStart, 16);
+					const u16 *clut = (const u16 *)scratch.clutBufRaw + clutSharingOffset;
+					const int clutStart = gs.clutIndexStartPos;
+					if (gs.clutIndexShift == 0 || gs.clutIndexMask <= 16) {
+						ConvertFormatToRGBA8888(clutformat, scratch.expandClutBuf + clutStart, clut + clutStart, 16);
 					} else {
 						// To be safe for shifts and wrap around, convert the entire CLUT.
-						ConvertFormatToRGBA8888(clutformat, expandClut_, clut, 512);
+						ConvertFormatToRGBA8888(clutformat, scratch.expandClutBuf, clut, 512);
 					}
 					fullAlphaMask = 0xFF000000;
 					for (int y = 0; y < h; ++y) {
-						DeIndexTexture4<u32>((u32 *)(out + outPitch * y), texptr + (bufw * y) / 2, w, expandClut_, &alphaSum);
+						DeIndexTexture4<u32>((u32 *)(out + outPitch * y), texptr + (bufw * y) / 2, w, scratch.expandClutBuf, &alphaSum);
 					}
 				} else {
 					// If we're reversing colors, the CLUT was already reversed, no special handling needed.
-					const u16 *clut = GetCurrentClut<u16>() + clutSharingOffset;
+					const u16 *clut = (const u16 *)scratch.clutBuf + clutSharingOffset;
 					fullAlphaMask = ClutFormatToFullAlpha(clutformat, reverseColors);
 					for (int y = 0; y < h; ++y) {
 						DeIndexTexture4<u16>((u16 *)(out + outPitch * y), texptr + (bufw * y) / 2, w, clut, &alphaSum);
@@ -1860,7 +1894,7 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 
 		case GE_CMODE_32BIT_ABGR8888:
 		{
-			const u32 *clut = GetCurrentClut<u32>() + clutSharingOffset;
+			const u32 *clut = (const u32 *)scratch.clutBuf + clutSharingOffset;
 			fullAlphaMask = 0xFF000000;
 			for (int y = 0; y < h; ++y) {
 				DeIndexTexture4<u32>((u32 *)(out + outPitch * y), texptr + (bufw * y) / 2, w, clut, &alphaSum);
@@ -1869,7 +1903,7 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 		break;
 
 		default:
-			ERROR_LOG_REPORT(Log::G3D, "Unknown CLUT4 texture mode %d", gstate.getClutPaletteFormat());
+			ERROR_LOG_REPORT(Log::G3D, "Unknown CLUT4 texture mode %d", gs.clutPaletteFormat);
 			return CHECKALPHA_ANY;
 		}
 	}
@@ -1877,10 +1911,10 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 
 	case GE_TFMT_CLUT8:
 		if (toClut8) {
-			if (gstate.isTextureSwizzled()) {
-				tmpTexBuf32_.resize(bufw * ((h + 7) & ~7));
-				UnswizzleFromMem(tmpTexBuf32_.data(), bufw, texptr, bufw, h, 1);
-				texptr = (u8 *)tmpTexBuf32_.data();
+			if (gs.swizzled) {
+				(*scratch.unswizzleBuf).resize(bufw * ((h + 7) & ~7));
+				UnswizzleFromMem((*scratch.unswizzleBuf).data(), bufw, texptr, bufw, h, 1);
+				texptr = (u8 *)(*scratch.unswizzleBuf).data();
 			}
 			// After deswizzling, we are in the correct format and can just copy.
 			for (int y = 0; y < h; ++y) {
@@ -1889,13 +1923,13 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 			// We can't know anything about alpha.
 			return CHECKALPHA_ANY;
 		}
-		return ReadIndexedTex(out, outPitch, level, texptr, 1, bufw, reverseColors, expandTo32bit);
+		return ReadIndexedTex(out, outPitch, level, texptr, w, h, 1, bufw, reverseColors, expandTo32bit, gs, scratch);
 
 	case GE_TFMT_CLUT16:
-		return ReadIndexedTex(out, outPitch, level, texptr, 2, bufw, reverseColors, expandTo32bit);
+		return ReadIndexedTex(out, outPitch, level, texptr, w, h, 2, bufw, reverseColors, expandTo32bit, gs, scratch);
 
 	case GE_TFMT_CLUT32:
-		return ReadIndexedTex(out, outPitch, level, texptr, 4, bufw, reverseColors, expandTo32bit);
+		return ReadIndexedTex(out, outPitch, level, texptr, w, h, 4, bufw, reverseColors, expandTo32bit, gs, scratch);
 
 	case GE_TFMT_4444:
 	case GE_TFMT_5551:
@@ -1929,9 +1963,9 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 			}
 		}*/ else {
 			// We don't have enough space for all rows in out, so use a temp buffer.
-			tmpTexBuf32_.resize(bufw * ((h + 7) & ~7));
-			UnswizzleFromMem(tmpTexBuf32_.data(), bufw * 2, texptr, bufw, h, 2);
-			const u8 *unswizzled = (u8 *)tmpTexBuf32_.data();
+			(*scratch.unswizzleBuf).resize(bufw * ((h + 7) & ~7));
+			UnswizzleFromMem((*scratch.unswizzleBuf).data(), bufw * 2, texptr, bufw, h, 2);
+			const u8 *unswizzled = (u8 *)(*scratch.unswizzleBuf).data();
 
 			fullAlphaMask = TfmtRawToFullAlpha(format);
 			if (expandTo32bit) {
@@ -1978,9 +2012,9 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 				ReverseColors(out, out, format, h * outPitch / 4, useBGRA);
 			}
 		}*/ else {
-			tmpTexBuf32_.resize(bufw * ((h + 7) & ~7));
-			UnswizzleFromMem(tmpTexBuf32_.data(), bufw * 4, texptr, bufw, h, 4);
-			const u8 *unswizzled = (u8 *)tmpTexBuf32_.data();
+			(*scratch.unswizzleBuf).resize(bufw * ((h + 7) & ~7));
+			UnswizzleFromMem((*scratch.unswizzleBuf).data(), bufw * 4, texptr, bufw, h, 4);
+			const u8 *unswizzled = (u8 *)(*scratch.unswizzleBuf).data();
 
 			fullAlphaMask = TfmtRawToFullAlpha(format);
 			if (reverseColors) {
@@ -2013,37 +2047,34 @@ CheckAlphaResult TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, G
 	return AlphaSumIsFull(alphaSum, fullAlphaMask) ? CHECKALPHA_FULL : CHECKALPHA_ANY;
 }
 
-CheckAlphaResult TextureCacheCommon::ReadIndexedTex(u8 *out, int outPitch, int level, const u8 *texptr, int bytesPerIndex, int bufw, bool reverseColors, bool expandTo32Bit) {
-	int w = gstate.getTextureWidth(level);
-	int h = gstate.getTextureHeight(level);
-
-	if (gstate.isTextureSwizzled()) {
-		tmpTexBuf32_.resize(bufw * ((h + 7) & ~7));
-		UnswizzleFromMem(tmpTexBuf32_.data(), bufw * bytesPerIndex, texptr, bufw, h, bytesPerIndex);
-		texptr = (u8 *)tmpTexBuf32_.data();
+CheckAlphaResult TextureCacheCommon::ReadIndexedTex(u8 *out, int outPitch, int level, const u8 *texptr, int w, int h, int bytesPerIndex, int bufw, bool reverseColors, bool expandTo32Bit, const DecodeGStateSnapshot &gs, DecodeScratch &scratch) {
+	if (gs.swizzled) {
+		(*scratch.unswizzleBuf).resize(bufw * ((h + 7) & ~7));
+		UnswizzleFromMem((*scratch.unswizzleBuf).data(), bufw * bytesPerIndex, texptr, bufw, h, bytesPerIndex);
+		texptr = (u8 *)(*scratch.unswizzleBuf).data();
 	}
 
 	// Misshitsu no Sacrifice has separate CLUT data, this is a hack to allow it.
 	// Normally separate CLUTs are not allowed for 8-bit or higher indices.
-	const bool mipmapShareClut = gstate.isClutSharedForMipmaps() || gstate.getClutLoadBlocks() != 0x40;
+	const bool mipmapShareClut = gs.clutSharedForMipmaps || gs.clutLoadBlocks != 0x40;
 	const int clutSharingOffset = mipmapShareClut ? 0 : (level & 1) * 256;
 
-	GEPaletteFormat palFormat = (GEPaletteFormat)gstate.getClutPaletteFormat();
+	GEPaletteFormat palFormat = (GEPaletteFormat)gs.clutPaletteFormat;
 
-	const u16 *clut16 = (const u16 *)clutBuf_ + clutSharingOffset;
-	const u32 *clut32 = (const u32 *)clutBuf_ + clutSharingOffset;
+	const u16 *clut16 = (const u16 *)scratch.clutBuf + clutSharingOffset;
+	const u32 *clut32 = (const u32 *)scratch.clutBuf + clutSharingOffset;
 
 	if (expandTo32Bit && palFormat != GE_CMODE_32BIT_ABGR8888) {
-		const u16 *clut16raw = (const u16 *)clutBufRaw_ + clutSharingOffset;
+		const u16 *clut16raw = (const u16 *)scratch.clutBufRaw + clutSharingOffset;
 		// It's possible to access the latter half of the CLUT using the start pos.
-		const int clutStart = gstate.getClutIndexStartPos();
+		const int clutStart = gs.clutIndexStartPos;
 		if (clutStart > 256) {
 			// Access wraps around when start + index goes over.
-			ConvertFormatToRGBA8888(GEPaletteFormat(palFormat), expandClut_, clut16raw, 512);
+			ConvertFormatToRGBA8888(GEPaletteFormat(palFormat), scratch.expandClutBuf, clut16raw, 512);
 		} else {
-			ConvertFormatToRGBA8888(GEPaletteFormat(palFormat), expandClut_ + clutStart, clut16raw + clutStart, 256);
+			ConvertFormatToRGBA8888(GEPaletteFormat(palFormat), scratch.expandClutBuf + clutStart, clut16raw + clutStart, 256);
 		}
-		clut32 = expandClut_;
+		clut32 = scratch.expandClutBuf;
 		palFormat = GE_CMODE_32BIT_ABGR8888;
 	}
 
@@ -2103,7 +2134,7 @@ CheckAlphaResult TextureCacheCommon::ReadIndexedTex(u8 *out, int outPitch, int l
 	break;
 
 	default:
-		ERROR_LOG_REPORT(Log::G3D, "Unhandled clut texture mode %d!!!", gstate.getClutPaletteFormat());
+		ERROR_LOG_REPORT(Log::G3D, "Unhandled clut texture mode %d!!!", gs.clutPaletteFormat);
 		break;
 	}
 
@@ -2137,55 +2168,79 @@ void TextureCacheCommon::ApplyTexture(bool doBind) {
 
 	UpdateMaxSeenV(entry, gstate.isModeThrough());
 
-	if (nextNeedsRebuild_) {
-		// Regardless of hash fails or otherwise, if this is a video, mark it frequently changing.
-		// This prevents temporary scaling perf hits on the first second of video.
-		if (IsVideo(entry->addr)) {
-			entry->status |= TexCacheEntry::STATUS_CHANGE_FREQUENT | TexCacheEntry::STATUS_VIDEO;
-		} else {
-			entry->status &= ~TexCacheEntry::STATUS_VIDEO;
+	bool wasDecodePending = (entry->status & TexCacheEntry::STATUS_DECODE_PENDING) != 0;
+	if (wasDecodePending && !nextNeedsRebuild_) {
+		// A background decode is already in flight for this entry (see AsyncTextureDecode.h),
+		// and SetTexture() found no reason to rebuild -- keep waiting. Hash rechecking is
+		// skipped while pending; decode is bounded to a handful of frames in practice, so
+		// deferring a periodic reliability recheck that long is a non-issue. entry->texturePtr
+		// is always valid here (either the placeholder or a previously finished decode), so the
+		// draw calls below work unchanged regardless of whether Poll() finishes anything now.
+		PollAsyncBuildTexture(entry);
+	} else {
+		if (wasDecodePending) {
+			// SetTexture() determined this address now holds different data/params than the
+			// in-flight decode was started for (address reuse is common in PSP games). The
+			// stale decode and its placeholder texture must be discarded now, not silently
+			// ignored -- otherwise entry->textureName is left set when BuildTexture()/
+			// StartAsyncBuildTexture() run below, violating their "no existing texture" precondition.
+			CancelAsyncBuildTexture(entry);
+		}
+		if (nextNeedsRebuild_) {
+			// Regardless of hash fails or otherwise, if this is a video, mark it frequently changing.
+			// This prevents temporary scaling perf hits on the first second of video.
+			if (IsVideo(entry->addr)) {
+				entry->status |= TexCacheEntry::STATUS_CHANGE_FREQUENT | TexCacheEntry::STATUS_VIDEO;
+			} else {
+				entry->status &= ~TexCacheEntry::STATUS_VIDEO;
+			}
+
+			if (nextNeedsRehash_) {
+				PROFILE_THIS_SCOPE("texhash");
+				// Update the hash on the texture.
+				int w = gstate.getTextureWidth(0);
+				int h = gstate.getTextureHeight(0);
+				bool swizzled = gstate.isTextureSwizzled();
+				entry->fullhash = QuickTexHash(replacer_, entry->addr, entry->bufw, w, h, swizzled, GETextureFormat(entry->format), entry);
+
+				// TODO: Here we could check the secondary cache; maybe the texture is in there?
+				// We would need to abort the build if so.
+			}
+			if (nextNeedsChange_) {
+				// This texture existed previously, let's handle the change.
+				HandleTextureChange(entry, nextChangeReason_, false, true);
+			}
+			// We actually build afterward (shared with rehash rebuild.)
+		} else if (nextNeedsRehash_) {
+			// Okay, this matched and didn't change - but let's check the hash.  Maybe it will change.
+			bool doDelete = true;
+			if (!CheckFullHash(entry, doDelete)) {
+				HandleTextureChange(entry, "hash fail", true, doDelete);
+				nextNeedsRebuild_ = true;
+			} else if (nextTexture_ != nullptr) {
+				// The secondary cache may choose an entry from its storage by setting nextTexture_.
+				// This means we should set that, instead of our previous entry.
+				entry = nextTexture_;
+				nextTexture_ = nullptr;
+				UpdateMaxSeenV(entry, gstate.isModeThrough());
+			}
 		}
 
-		if (nextNeedsRehash_) {
-			PROFILE_THIS_SCOPE("texhash");
-			// Update the hash on the texture.
-			int w = gstate.getTextureWidth(0);
-			int h = gstate.getTextureHeight(0);
-			bool swizzled = gstate.isTextureSwizzled();
-			entry->fullhash = QuickTexHash(replacer_, entry->addr, entry->bufw, w, h, swizzled, GETextureFormat(entry->format), entry);
-
-			// TODO: Here we could check the secondary cache; maybe the texture is in there?
-			// We would need to abort the build if so.
+		// Okay, now actually rebuild the texture if needed.
+		if (nextNeedsRebuild_) {
+			_assert_(!entry->texturePtr);
+			bool timeIt = StutterMonitor::IsEnabled();
+			double buildStart = timeIt ? time_now_d() : 0.0;
+			// StartAsyncBuildTexture() is a no-op returning false on backends that don't override
+			// it and whenever the config/eligibility checks decline -- BuildTexture() is always
+			// the fallback, so the synchronous path's behavior is unchanged when this is off.
+			if (!StartAsyncBuildTexture(entry)) {
+				BuildTexture(entry);
+			}
+			if (timeIt)
+				StutterMonitor::AddTextureBuild((time_now_d() - buildStart) * 1000.0);
+			ForgetLastTexture();
 		}
-		if (nextNeedsChange_) {
-			// This texture existed previously, let's handle the change.
-			HandleTextureChange(entry, nextChangeReason_, false, true);
-		}
-		// We actually build afterward (shared with rehash rebuild.)
-	} else if (nextNeedsRehash_) {
-		// Okay, this matched and didn't change - but let's check the hash.  Maybe it will change.
-		bool doDelete = true;
-		if (!CheckFullHash(entry, doDelete)) {
-			HandleTextureChange(entry, "hash fail", true, doDelete);
-			nextNeedsRebuild_ = true;
-		} else if (nextTexture_ != nullptr) {
-			// The secondary cache may choose an entry from its storage by setting nextTexture_.
-			// This means we should set that, instead of our previous entry.
-			entry = nextTexture_;
-			nextTexture_ = nullptr;
-			UpdateMaxSeenV(entry, gstate.isModeThrough());
-		}
-	}
-
-	// Okay, now actually rebuild the texture if needed.
-	if (nextNeedsRebuild_) {
-		_assert_(!entry->texturePtr);
-		bool timeIt = StutterMonitor::IsEnabled();
-		double buildStart = timeIt ? time_now_d() : 0.0;
-		BuildTexture(entry);
-		if (timeIt)
-			StutterMonitor::AddTextureBuild((time_now_d() - buildStart) * 1000.0);
-		ForgetLastTexture();
 	}
 
 	gstate_c.SetTextureIsVideo((entry->status & TexCacheEntry::STATUS_VIDEO) != 0);
@@ -3033,7 +3088,22 @@ void TextureCacheCommon::LoadTextureLevel(TexCacheEntry &entry, uint8_t *data, s
 			texDecFlags |= TexDecodeFlags::TO_CLUT8;
 		}
 
-		CheckAlphaResult alphaResult = DecodeTextureLevel((u8 *)pixelData, decPitch, tfmt, clutformat, texaddr, srcLevel, bufw, texDecFlags);
+		DecodeGStateSnapshot gs;
+		gs.swizzled = gstate.isTextureSwizzled();
+		gs.clutSharedForMipmaps = gstate.isClutSharedForMipmaps();
+		gs.clutIndexStartPos = gstate.getClutIndexStartPos();
+		gs.clutIndexShift = gstate.getClutIndexShift();
+		gs.clutIndexMask = gstate.getClutIndexMask();
+		gs.clutLoadBlocks = gstate.getClutLoadBlocks();
+		gs.clutPaletteFormat = (GEPaletteFormat)gstate.getClutPaletteFormat();
+		gs.clutAlphaLinear = clutAlphaLinear_;
+		gs.clutAlphaLinearColor = clutAlphaLinearColor_;
+		DecodeScratch scratch;
+		scratch.unswizzleBuf = &tmpTexBuf32_;
+		scratch.expandClutBuf = expandClut_;
+		scratch.clutBuf = clutBuf_;
+		scratch.clutBufRaw = clutBufRaw_;
+		CheckAlphaResult alphaResult = DecodeTextureLevel((u8 *)pixelData, decPitch, tfmt, clutformat, Memory::GetPointer(texaddr), texaddr, w, h, srcLevel, bufw, texDecFlags, gs, scratch);
 		entry.SetAlphaStatus(alphaResult, srcLevel);
 
 		int scaledW = w, scaledH = h;

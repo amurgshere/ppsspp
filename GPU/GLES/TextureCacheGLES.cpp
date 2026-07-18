@@ -15,7 +15,9 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
+#include <algorithm>
 #include <cstring>
+#include <memory>
 
 #include "ext/xxhash.h"
 #include "Common/Common.h"
@@ -25,12 +27,15 @@
 #include "Common/System/OSD.h"
 #include "Common/GPU/OpenGL/GLRenderManager.h"
 #include "Common/TimeUtil.h"
+#include "Core/Config.h"
 
+#include "GPU/GPU.h"
 #include "GPU/ge_constants.h"
 #include "GPU/GPUState.h"
 #include "GPU/GPUDefinitions.h"
 #include "GPU/GLES/TextureCacheGLES.h"
 #include "GPU/GLES/FramebufferManagerGLES.h"
+#include "GPU/Common/AsyncTextureDecode.h"
 #include "GPU/Common/TextureShaderCommon.h"
 #include "GPU/Common/DrawEngineCommon.h"
 
@@ -352,6 +357,183 @@ void TextureCacheGLES::BuildTexture(TexCacheEntry *const entry) {
 	if (plan.doReplace) {
 		entry->SetAlphaStatus(TexCacheEntry::TexStatus(plan.replaced->AlphaStatus()));
 	}
+}
+
+bool TextureCacheGLES::StartAsyncBuildTexture(TexCacheEntry *const entry) {
+	if (!g_Config.bAsyncTextureDecode) {
+		return false;
+	}
+	// STATUS_CHANGE_FREQUENT: background decode can not outrun a texture that is rewritten
+	// every frame or two -- the display would perpetually lag behind by however many frames
+	// decode takes, which is worse than today's synchronous one-frame-behind-at-worst
+	// behavior, not just slower. STATUS_CLUT_GPU: separate depal path, not a plain decode.
+	if (entry->status & (TexCacheEntry::STATUS_CHANGE_FREQUENT | TexCacheEntry::STATUS_CLUT_GPU)) {
+		return false;
+	}
+	if (IsVideo(entry->addr)) {
+		return false;
+	}
+	// Only take the async path for an entry's first-ever build. HandleTextureChange() has
+	// already released any previous texture by the time we get here (see ApplyTexture), so a
+	// change-rebuild would otherwise flash this entry's placeholder gray for a frame in place
+	// of content that was already on screen -- visible and jarring, unlike the placeholder
+	// flash on a texture's first appearance, which nothing was on screen to compare against.
+	// The burst-of-newly-visible-textures stutter this feature targets is entirely first
+	// builds, so falling back to the synchronous path here for rebuilds costs nothing but an
+	// occasional single-frame hit for a texture that was already rare enough to not be
+	// STATUS_CHANGE_FREQUENT.
+	if (entry->numInvalidated > 0) {
+		return false;
+	}
+	// TEMPORARY diagnostic for the async-decode gray-flash investigation -- remove once the
+	// eviction-recreation hypothesis is confirmed or ruled out. Correlate against GRAYFLASH
+	// evict log lines by addr: a matching addr shortly before this line means the entry was
+	// evicted and recreated (numInvalidated reset to 0), not genuinely first-seen.
+	WARN_LOG(Log::G3D, "GRAYFLASH asyncstart addr=%08x fmt=%d hasClut=%d curFrame=%d",
+		entry->addr, entry->format, (entry->status & TexCacheEntry::STATUS_CLUT_VARIANTS) ? 1 : 0, gpuStats.numFlips);
+	// Guarantees PrepareBuildTexture below can not end up with plan.scaleFactor != 1 for this
+	// backend (hardwareScaling is never requested here, and lowMemoryMode_ only ever clamps
+	// scaleFactor downward), which in turn guarantees PrepareBuildTexture's frame-accumulating
+	// side effects (texelsScaledThisFrame_, STATUS_TO_SCALE) never fire. That matters because
+	// if this function returns false below, the caller re-runs PrepareBuildTexture itself via
+	// the normal synchronous BuildTexture() -- safe only because those side effects are all
+	// gated behind scaleFactor != 1.
+	if (standardScaleFactor_ != 1) {
+		return false;
+	}
+
+	BuildTexturePlan plan;
+	if (!PrepareBuildTexture(plan, entry)) {
+		return false;
+	}
+	// doReplace/saveTexture/decodeToClut8 all drive further TextureCacheCommon member state
+	// (replacer_, scaler_) that is not safe to touch concurrently with a worker thread; 3D
+	// textures need the separate depth-layer upload path BuildTexture has. None of these are
+	// worth widening the async path for yet -- see the plan doc for the full reasoning.
+	_dbg_assert_(plan.scaleFactor == 1);
+	if (plan.depth != 1 || plan.saveTexture || plan.doReplace || plan.decodeToClut8) {
+		return false;
+	}
+
+	_assert_(!entry->textureName);
+
+	Draw::DataFormat dstFmt = GetDestFormat(GETextureFormat(entry->format), gstate.getClutPaletteFormat());
+	int bpp = (int)Draw::DataFormatSizeInBytes(dstFmt);
+
+	entry->textureName = render_->CreateTexture(GL_TEXTURE_2D, plan.createW, plan.createH, 1, plan.levelsToCreate);
+
+	// Placeholder: a flat level 0, mip chain auto-generated from it. Wholesale-replaced once
+	// the real decode finishes -- see FinishAsyncBuildTexture. Keeps ApplyTexture's draw calls
+	// valid for this entry in the meantime without needing to touch PSP memory at all.
+	size_t placeholderSize = (size_t)plan.createW * plan.createH * bpp;
+	u8 *placeholder = new u8[placeholderSize];
+	memset(placeholder, 0x80, placeholderSize);
+	render_->TextureImage(entry->textureName, 0, plan.createW, plan.createH, 1, dstFmt, placeholder, GLRAllocType::NEW);
+	render_->FinalizeTexture(entry->textureName, 1, true);
+
+	auto pending = std::make_unique<PendingTextureDecode>();
+	pending->format = GETextureFormat(entry->format);
+	pending->clutFormat = gstate.getClutPaletteFormat();
+	pending->dstFmt = dstFmt;
+	pending->tw = plan.createW;
+	pending->th = plan.createH;
+	pending->levelsToLoad = plan.levelsToLoad;
+	pending->levelsToCreate = plan.levelsToCreate;
+
+	TexDecodeFlags flags = TexDecodeFlags::REVERSE_COLORS;
+	if (!gstate_c.Use(GPU_USE_16BIT_FORMATS) || dstFmt == Draw::DataFormat::R8G8B8A8_UNORM) {
+		flags |= TexDecodeFlags::EXPAND32;
+	}
+	pending->flags = flags;
+
+	pending->gs.swizzled = gstate.isTextureSwizzled();
+	pending->gs.clutSharedForMipmaps = gstate.isClutSharedForMipmaps();
+	pending->gs.clutIndexStartPos = gstate.getClutIndexStartPos();
+	pending->gs.clutIndexShift = gstate.getClutIndexShift();
+	pending->gs.clutIndexMask = gstate.getClutIndexMask();
+	pending->gs.clutLoadBlocks = gstate.getClutLoadBlocks();
+	pending->gs.clutPaletteFormat = (GEPaletteFormat)gstate.getClutPaletteFormat();
+	pending->gs.clutAlphaLinear = clutAlphaLinear_;
+	pending->gs.clutAlphaLinearColor = clutAlphaLinearColor_;
+
+	// Snapshot the actual palette contents now -- clutBuf_/clutBufRaw_ get rewritten by
+	// LoadClut() as soon as the game issues its next LOADCLUT, which can easily happen before
+	// this decode reaches the worker thread. See AsyncTextureDecode.h for the full reasoning.
+	pending->clutBufSnapshot.assign(clutBuf_, clutBuf_ + 512);
+	pending->clutBufRawSnapshot.assign(clutBufRaw_, clutBufRaw_ + 512);
+
+	GETextureFormat tfmt = (GETextureFormat)entry->format;
+	pending->levels.resize(plan.levelsToLoad);
+	for (int i = 0; i < plan.levelsToLoad; i++) {
+		int srcLevel = i == 0 ? plan.baseLevelSrc : i;
+		PendingLevelSnapshot &level = pending->levels[i];
+		level.texaddr = gstate.getTextureAddress(srcLevel);
+		level.bufw = GetTextureBufw(srcLevel, level.texaddr, tfmt);
+		level.w = gstate.getTextureWidth(srcLevel);
+		level.h = gstate.getTextureHeight(srcLevel);
+		// DoUnswizzleTex16 always reads in 8-row blocks (see UnswizzleFromMem's byc rounding
+		// and its matching (h + 7) & ~7 destination sizing in DecodeTextureLevel) -- for a
+		// swizzled texture whose height isn't a multiple of 8, it reads a few rows past the
+		// end of this snapshot. That's harmless against the sync path's live PSP RAM, but a
+		// real heap over-read against this exactly-sized buffer, so round up here to match.
+		const int readHeight = pending->gs.swizzled ? ((level.h + 7) & ~7) : level.h;
+		const uint32_t byteSize = (textureBitsPerPixel[tfmt] * level.bufw * readHeight) / 8;
+		level.srcData.resize(byteSize);
+		memcpy(level.srcData.data(), Memory::GetPointer(level.texaddr), byteSize);
+	}
+
+	entry->pendingDecode = std::move(pending);
+	entry->pendingDecode->Start(this);
+	entry->status |= TexCacheEntry::STATUS_DECODE_PENDING;
+	return true;
+}
+
+void TextureCacheGLES::PollAsyncBuildTexture(TexCacheEntry *const entry) {
+	if (!entry->pendingDecode || !entry->pendingDecode->Poll()) {
+		return;
+	}
+	FinishAsyncBuildTexture(entry);
+}
+
+void TextureCacheGLES::CancelAsyncBuildTexture(TexCacheEntry *const entry) {
+	// pendingDecode's destructor blocks briefly if the background task hasn't finished yet.
+	entry->pendingDecode.reset();
+	if (entry->textureName) {
+		render_->DeleteTexture(entry->textureName);
+		entry->textureName = nullptr;
+	}
+	entry->status &= ~TexCacheEntry::STATUS_DECODE_PENDING;
+}
+
+void TextureCacheGLES::FinishAsyncBuildTexture(TexCacheEntry *const entry) {
+	PendingTextureDecode *pending = entry->pendingDecode.get();
+
+	GLRTexture *placeholderTexture = entry->textureName;
+	entry->textureName = render_->CreateTexture(GL_TEXTURE_2D, pending->tw, pending->th, 1, pending->levelsToCreate);
+
+	for (int i = 0; i < pending->levelsToLoad; i++) {
+		// Must match the width Run() actually decoded each level's row pitch against
+		// (PendingLevelSnapshot::w, the PSP-declared per-level width), not a power-of-two
+		// halving of the base level -- real content's mip chain isn't always a strict halving,
+		// and a mismatch here means GL reads the upload buffer's scanlines at the wrong stride.
+		int mipWidth = pending->levels[i].w;
+		int mipHeight = pending->levels[i].h;
+		std::vector<u8> &decoded = pending->decodedLevels[i];
+		u8 *data = new u8[decoded.size()];
+		memcpy(data, decoded.data(), decoded.size());
+		render_->TextureImage(entry->textureName, i, mipWidth, mipHeight, 1, pending->dstFmt, data, GLRAllocType::NEW);
+		entry->SetAlphaStatus(pending->alphaResults[i], i);
+	}
+
+	bool genMips = pending->levelsToCreate > pending->levelsToLoad;
+	render_->FinalizeTexture(entry->textureName, pending->levelsToLoad, genMips);
+
+	if (placeholderTexture) {
+		render_->DeleteTexture(placeholderTexture);
+	}
+
+	entry->status &= ~TexCacheEntry::STATUS_DECODE_PENDING;
+	entry->pendingDecode.reset();
 }
 
 Draw::DataFormat TextureCacheGLES::GetDestFormat(GETextureFormat format, GEPaletteFormat clutFormat) {

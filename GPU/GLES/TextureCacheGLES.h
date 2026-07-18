@@ -71,6 +71,16 @@ private:
 	void UpdateCurrentClut(GEPaletteFormat clutFormat, u32 clutBase, bool clutIndexIsSimple) override;
 	void BuildTexture(TexCacheEntry *const entry) override;
 
+	// Async texture decode (see GPU/Common/AsyncTextureDecode.h). Deliberately separate,
+	// self-contained code paths rather than sharing BuildTexture's per-level loop -- the
+	// eligibility gate in StartAsyncBuildTexture already excludes every case that loop
+	// handles beyond plain 2D decode (replacement, scaling, 3D, CLUT-GPU depal), so the
+	// swap-in step only ever needs the simple case, and BuildTexture itself stays untouched.
+	bool StartAsyncBuildTexture(TexCacheEntry *const entry) override;
+	void PollAsyncBuildTexture(TexCacheEntry *const entry) override;
+	void CancelAsyncBuildTexture(TexCacheEntry *const entry) override;
+	void FinishAsyncBuildTexture(TexCacheEntry *const entry);
+
 	GLRenderManager *render_;
 
 	GLRTexture *lastBoundTexture = nullptr;

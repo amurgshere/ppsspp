@@ -545,6 +545,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/GPU/Common/VertexShaderGenerator.cpp \
   $(SRC)/GPU/Common/GeometryShaderGenerator.cpp \
   $(SRC)/GPU/Common/TextureReplacer.cpp \
+  $(SRC)/GPU/Common/AsyncTextureDecode.cpp \
   $(SRC)/GPU/Common/ReplacedTexture.cpp \
   $(SRC)/GPU/Debugger/Breakpoints.cpp \
   $(SRC)/GPU/Debugger/Debugger.cpp \

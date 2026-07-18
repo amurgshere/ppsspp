@@ -31,6 +31,11 @@ void AddTextureBuild(double elapsedMs);
 // timing can see, since that only measures time spent enqueuing commands, not the
 // render thread executing them.
 void AddGpuSyncWait(double elapsedMs);
+// Adjust the persistent (not per-frame -- see Tick()) count of textures currently being
+// decoded in the background. +1 when a PendingTextureDecode starts, -1 when it's destroyed
+// (whether by finishing normally or by the owning entry being evicted mid-decode), so the
+// count is always accurate regardless of which path retires it. See AsyncTextureDecode.h.
+void AdjustPendingDecodeCount(int delta);
 
 // Called once per displayed frame (from sceDisplay's existing frame timing/drop
 // detection), regardless of whether this particular frame dropped. gpuMs/cpuMs are

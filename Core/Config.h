@@ -207,6 +207,11 @@ public:
 	// (today's single I/O thread behavior). Can be changed while a game is running --
 	// see __IoRefreshThreadCount().
 	int iIOThreadCount;
+	// Decode/upload of newly-seen textures happens on a background thread instead of the emu
+	// thread when true, spreading the cost of area-transition texture bursts across several
+	// frames instead of concentrating it into one. Off by default: new concurrent code path,
+	// GLES backend only for now. See GPU/Common/AsyncTextureDecode.h.
+	bool bAsyncTextureDecode;
 	bool bCheckForNewVersion;
 	bool bForceLagSync;
 	bool bFuncReplacements;

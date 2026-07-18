@@ -50,6 +50,7 @@ enum FramebufferNotification {
 struct VirtualFramebuffer;
 class TextureReplacer;
 class ShaderManagerCommon;
+class PendingTextureDecode;
 
 enum class TexDecodeFlags {
 	EXPAND32 = 1,
@@ -57,6 +58,41 @@ enum class TexDecodeFlags {
 	TO_CLUT8 = 4,
 };
 ENUM_CLASS_BITOPS(TexDecodeFlags);
+
+// Everything DecodeTextureLevel/ReadIndexedTex read from live gstate, snapshotted
+// synchronously (on the emu thread) so a background decode never touches gstate directly.
+struct DecodeGStateSnapshot {
+	bool swizzled;
+	bool clutSharedForMipmaps;
+	int clutIndexStartPos;
+	int clutIndexShift;
+	int clutIndexMask;
+	int clutLoadBlocks;
+	GEPaletteFormat clutPaletteFormat;
+	// GE_TFMT_CLUT4's fast path reads these two directly (see DecodeTextureLevel); they're
+	// cached alongside clutBuf_/clutBufRaw_ by LoadClut() and race the same way if not
+	// snapshotted here too.
+	bool clutAlphaLinear;
+	u16 clutAlphaLinearColor;
+};
+
+// Scratch buffers a decode writes to. The synchronous path passes TextureCacheCommon's own
+// tmpTexBuf32_/expandClut_; a background decode must pass task-local buffers instead, since
+// those members are shared mutable state that a concurrent synchronous decode (for some
+// other, non-deferred texture) could be using at the same time.
+struct DecodeScratch {
+	AlignedVector<u32, 16> *unswizzleBuf;
+	u32 *expandClutBuf;  // Must point at (at least) 512 u32 entries (2048 bytes), matching expandClut_.
+	// The actual CLUT palette contents (not just the scalar gstate CLUT fields already in
+	// DecodeGStateSnapshot). For the synchronous path these point straight at the live
+	// clutBuf_/clutBufRaw_ members (matching prior behavior exactly). For an async decode
+	// they MUST point at a private snapshot copied out while starting the task -- clutBuf_/
+	// clutBufRaw_ are rewritten by LoadClut() on the emu thread as the game issues further
+	// LOADCLUT commands while the decode is in flight, and reading the live members from a
+	// worker thread would race and can pick up a completely different texture's palette.
+	const u32 *clutBuf;
+	const u32 *clutBufRaw;
+};
 
 namespace Draw {
 class DrawContext;
@@ -132,10 +168,9 @@ struct TextureDefinition {
 
 // TODO: Shrink this struct. There is some fluff.
 struct TexCacheEntry {
-	~TexCacheEntry() {
-		if (texturePtr || textureName || vkTex)
-			Crash();
-	}
+	// Defined out-of-line (TextureCacheCommon.cpp) since pendingDecode requires
+	// PendingTextureDecode's complete type, which this header intentionally avoids pulling in.
+	~TexCacheEntry();
 	// After marking STATUS_UNRELIABLE, if it stays the same this many frames we'll trust it again.
 	const static int FRAMES_REGAIN_TRUST = 1000;
 
@@ -172,6 +207,7 @@ struct TexCacheEntry {
 
 		STATUS_VIDEO = 0x10000,
 		STATUS_BGRA = 0x20000,
+		STATUS_DECODE_PENDING = 0x40000,  // Async decode in flight; see pendingDecode.
 	};
 
 	// TexStatus enum flag combination.
@@ -200,6 +236,25 @@ struct TexCacheEntry {
 	u32 cluthash;
 	u16 maxSeenV;
 	ReplacedTexture *replacedTexture;
+	std::unique_ptr<PendingTextureDecode> pendingDecode;  // Async decode in flight; see AsyncTextureDecode.h
+
+	// Default/copy constructors are declared here but DEFINED out-of-line in
+	// TextureCacheCommon.cpp -- pendingDecode's unique_ptr<PendingTextureDecode> machinery
+	// must not be instantiated in every translation unit that merely includes this header
+	// (MSVC eagerly instantiates it for inline bodies here, even when nothing they do
+	// actually touches PendingTextureDecode's size/destructor), only in the one TU that
+	// has AsyncTextureDecode.h's complete type visible. Same reasoning as ~TexCacheEntry().
+	TexCacheEntry();
+	// The secondary texture cache (see CheckFullHash) archives a whole TexCacheEntry by value
+	// on a hash fail, so this needs to stay copyable -- but a pending decode task points at a
+	// specific PendingTextureDecode object and must never be duplicated across two entries, so
+	// the copy always starts with no pending decode of its own rather than sharing/duplicating
+	// the source's. ApplyTexture never reaches CheckFullHash for an entry with
+	// STATUS_DECODE_PENDING set (see the check there), so other.pendingDecode should always
+	// already be null by the time this runs in practice -- the out-of-line definition asserts
+	// that invariant.
+	TexCacheEntry(const TexCacheEntry &other);
+	TexCacheEntry &operator=(const TexCacheEntry &) = delete;
 
 	TexStatus GetHashStatus() {
 		return TexStatus(status & STATUS_MASK);
@@ -417,16 +472,48 @@ protected:
 
 	void HandleTextureChange(TexCacheEntry *const entry, const char *reason, bool initialMatch, bool doDelete);
 	virtual void BuildTexture(TexCacheEntry *const entry) = 0;
+
+	// Async texture decode (see GPU/Common/AsyncTextureDecode.h). Base implementations are
+	// no-ops so backends that do not implement this (everything but GLES, for now) and the
+	// config-off case both fall straight back to the synchronous BuildTexture() above with no
+	// extra cost -- ApplyTexture() only calls PollAsyncBuildTexture() when
+	// STATUS_DECODE_PENDING is set, which only an overriding backend ever sets.
+	//
+	// Returns true if an async decode was actually started (caller must not also call
+	// BuildTexture() for this entry this frame); false means "not eligible, use the normal
+	// synchronous path instead" (config off, unsupported backend, or any of the exclusions in
+	// ShouldUseAsyncDecode).
+	virtual bool StartAsyncBuildTexture(TexCacheEntry *const entry) { return false; }
+	// Called every frame an entry has STATUS_DECODE_PENDING set, instead of the normal
+	// rehash/rebuild logic. Non-blocking; does nothing if the decode is not ready yet.
+	virtual void PollAsyncBuildTexture(TexCacheEntry *const entry) {}
+	// Called instead of PollAsyncBuildTexture() when SetTexture() has determined the address
+	// now holds different data/params than the in-flight decode was started for (address reuse
+	// is common in PSP games) -- discards the stale decode and placeholder texture so the
+	// caller can immediately start a fresh rebuild for the new content. Blocks briefly if the
+	// background task hasn't finished yet; bounded by the same decode time StartAsyncBuildTexture
+	// would otherwise be waited on for anyway.
+	virtual void CancelAsyncBuildTexture(TexCacheEntry *const entry) {}
 	virtual void UpdateCurrentClut(GEPaletteFormat clutFormat, u32 clutBase, bool clutIndexIsSimple) = 0;
 	bool CheckFullHash(TexCacheEntry *entry, bool &doDelete);
 
 	virtual void BindAsClutTexture(Draw::Texture *tex, bool smooth) {}
 
-	CheckAlphaResult DecodeTextureLevel(u8 *out, int outPitch, GETextureFormat format, GEPaletteFormat clutformat, uint32_t texaddr, int level, int bufw, TexDecodeFlags flags);
+	// texptr must point at the raw source bytes for this level (Memory::GetPointer(texaddr) for the
+	// synchronous path, or a snapshot buffer for an async decode); texaddr itself is kept only for
+	// logging/VRAM-mirror address checks, never dereferenced directly. w/h are the level's dimensions
+	// and gs/scratch replace what used to be direct gstate/tmpTexBuf32_/expandClut_ access, so this
+	// function (and ReadIndexedTex below) can safely run on a background thread given the right inputs.
+	CheckAlphaResult DecodeTextureLevel(u8 *out, int outPitch, GETextureFormat format, GEPaletteFormat clutformat, const u8 *texptr, uint32_t texaddr, int w, int h, int level, int bufw, TexDecodeFlags flags, const DecodeGStateSnapshot &gs, DecodeScratch &scratch);
 	static void UnswizzleFromMem(u32 *dest, u32 destPitch, const u8 *texptr, u32 bufw, u32 height, u32 bytesPerPixel);
-	CheckAlphaResult ReadIndexedTex(u8 *out, int outPitch, int level, const u8 *texptr, int bytesPerIndex, int bufw, bool reverseColors, bool expandTo32Bit);
+	CheckAlphaResult ReadIndexedTex(u8 *out, int outPitch, int level, const u8 *texptr, int w, int h, int bytesPerIndex, int bufw, bool reverseColors, bool expandTo32Bit, const DecodeGStateSnapshot &gs, DecodeScratch &scratch);
 	ReplacedTexture *FindReplacement(TexCacheEntry *entry, int *w, int *h, int *d);
 	void PollReplacement(TexCacheEntry *entry, int *w, int *h, int *d);
+
+	// Lets a background decode task call DecodeTextureLevel/ReadIndexedTex on this instance;
+	// see GPU/Common/AsyncTextureDecode.h. Never touches TexCacheEntry, only TextureCacheCommon
+	// itself, which outlives any individual decode (unlike entries, which can be evicted).
+	friend class PendingTextureDecode;
 
 	// Return value is mapData normally, but could be another buffer allocated with AllocateAlignedMemory.
 	void LoadTextureLevel(TexCacheEntry &entry, uint8_t *mapData, size_t dataSize, int mapRowPitch, BuildTexturePlan &plan, int srcLevel, Draw::DataFormat dstFmt, TexDecodeFlags texDecFlags);

@@ -598,6 +598,12 @@ void GameSettingsScreen::CreateGraphicsSettings(UI::ViewGroup *graphicsSettings)
 	texBackoff->SetDisabledPtr(&g_Config.bSoftwareRendering);
 	graphicsSettings->Add(new SettingHint(gr->T("Lazy texture caching Tip", "Faster, but can cause text problems in a few games")));
 
+	if (GetGPUBackend() == GPUBackend::OPENGL) {
+		CheckBox *asyncTextureDecode = graphicsSettings->Add(new CheckBox(&g_Config.bAsyncTextureDecode, gr->T("Async texture decode", "Async texture decode (speedup)")));
+		asyncTextureDecode->SetDisabledPtr(&g_Config.bSoftwareRendering);
+		graphicsSettings->Add(new SettingHint(gr->T("Async texture decode Tip", "Smooths out stutter from decoding new textures, may cause a brief flash on some")));
+	}
+
 	static const char *quality[] = { "Low", "Medium", "High" };
 	graphicsSettings->Add(new PopupMultiChoice(&g_Config.iSplineBezierQuality, gr->T("LowCurves", "Spline/Bezier curves quality"), quality, 0, ARRAY_SIZE(quality), I18NCat::GRAPHICS, screenManager()));
 	graphicsSettings->Add(new SettingHint(gr->T("LowCurves Tip", "Only used by some games, controls smoothness of curves")));

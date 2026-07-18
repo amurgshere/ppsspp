@@ -766,7 +766,22 @@ void TextureCacheVulkan::LoadVulkanTextureLevel(TexCacheEntry &entry, uint8_t *w
 		decPitch = rowPitch;
 	}
 
-	CheckAlphaResult alphaResult = DecodeTextureLevel((u8 *)pixelData, decPitch, tfmt, clutformat, texaddr, level, bufw, texDecFlags);
+	DecodeGStateSnapshot gs;
+	gs.swizzled = gstate.isTextureSwizzled();
+	gs.clutSharedForMipmaps = gstate.isClutSharedForMipmaps();
+	gs.clutIndexStartPos = gstate.getClutIndexStartPos();
+	gs.clutIndexShift = gstate.getClutIndexShift();
+	gs.clutIndexMask = gstate.getClutIndexMask();
+	gs.clutLoadBlocks = gstate.getClutLoadBlocks();
+	gs.clutPaletteFormat = (GEPaletteFormat)gstate.getClutPaletteFormat();
+	gs.clutAlphaLinear = clutAlphaLinear_;
+	gs.clutAlphaLinearColor = clutAlphaLinearColor_;
+	DecodeScratch scratch;
+	scratch.unswizzleBuf = &tmpTexBuf32_;
+	scratch.expandClutBuf = expandClut_;
+	scratch.clutBuf = clutBuf_;
+	scratch.clutBufRaw = clutBufRaw_;
+	CheckAlphaResult alphaResult = DecodeTextureLevel((u8 *)pixelData, decPitch, tfmt, clutformat, Memory::GetPointer(texaddr), texaddr, w, h, level, bufw, texDecFlags, gs, scratch);
 	entry.SetAlphaStatus(alphaResult, level);
 
 	if (scaleFactor > 1) {
