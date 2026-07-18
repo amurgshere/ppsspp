@@ -383,6 +383,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Common/MemoryUtil.cpp \
   $(SRC)/Common/MipsCPUDetect.cpp \
   $(SRC)/Common/StringUtils.cpp \
+  $(SRC)/Common/StutterMonitor.cpp \
   $(SRC)/Common/SysError.cpp \
   $(SRC)/Common/TimeUtil.cpp
 

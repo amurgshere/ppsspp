@@ -516,6 +516,7 @@
     <ClInclude Include="OSVersion.h" />
     <ClInclude Include="Serialize\SerializeSet.h" />
     <ClInclude Include="StringUtils.h" />
+    <ClInclude Include="StutterMonitor.h" />
     <ClInclude Include="Swap.h" />
     <ClInclude Include="SysError.h" />
     <ClInclude Include="System\Display.h" />
@@ -971,6 +972,7 @@
     <ClCompile Include="SysError.cpp" />
     <ClCompile Include="OSVersion.cpp" />
     <ClCompile Include="StringUtils.cpp" />
+    <ClCompile Include="StutterMonitor.cpp" />
     <ClCompile Include="System\Display.cpp" />
     <ClCompile Include="System\OSD.cpp" />
     <ClCompile Include="System\Request.cpp" />

@@ -27,6 +27,7 @@
 #include "Common/MemoryUtil.h"
 #include "Common/StringUtils.h"
 #include "Common/Math/SIMDHeaders.h"
+#include "Common/StutterMonitor.h"
 #include "Common/TimeUtil.h"
 #include "Common/Math/math_util.h"
 #include "Common/GPU/thin3d.h"
@@ -2179,7 +2180,11 @@ void TextureCacheCommon::ApplyTexture(bool doBind) {
 	// Okay, now actually rebuild the texture if needed.
 	if (nextNeedsRebuild_) {
 		_assert_(!entry->texturePtr);
+		bool timeIt = StutterMonitor::IsEnabled();
+		double buildStart = timeIt ? time_now_d() : 0.0;
 		BuildTexture(entry);
+		if (timeIt)
+			StutterMonitor::AddTextureBuild((time_now_d() - buildStart) * 1000.0);
 		ForgetLastTexture();
 	}
 

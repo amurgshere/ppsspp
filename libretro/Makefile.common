@@ -553,6 +553,7 @@ SOURCES_CXX += \
 	$(COMMONDIR)/LogReporting.cpp \
 	$(COMMONDIR)/SysError.cpp \
 	$(COMMONDIR)/StringUtils.cpp \
+	$(COMMONDIR)/StutterMonitor.cpp \
 	$(COMMONDIR)/TimeUtil.cpp
 
 SOURCES_CXX += \

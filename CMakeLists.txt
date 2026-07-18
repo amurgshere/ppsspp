@@ -974,6 +974,8 @@ add_library(Common STATIC
 	Common/OSVersion.h
 	Common/StringUtils.cpp
 	Common/StringUtils.h
+	Common/StutterMonitor.cpp
+	Common/StutterMonitor.h
 	Common/SysError.h
 	Common/SysError.cpp
 	Common/TimeUtil.cpp

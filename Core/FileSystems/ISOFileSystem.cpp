@@ -22,6 +22,7 @@
 #include "Common/CommonTypes.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
+#include "Common/StutterMonitor.h"
 #include "Core/FileSystems/ISOFileSystem.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/MemMap.h"
@@ -320,6 +321,7 @@ ISOFileSystem::TreeEntry *ISOFileSystem::GetFromPath(const std::string &path, bo
 }
 
 bool ISOFileSystem::GetOpenFileEntry(u32 handle, OpenFileEntry *out) {
+	StutterMonitor::ScopedLockTimer lockTimer("ISOFileSystem::entriesMutex_");
 	std::lock_guard<std::mutex> guard(entriesMutex_);
 	EntryMap::iterator iter = entries.find(handle);
 	if (iter == entries.end()) {
@@ -330,6 +332,7 @@ bool ISOFileSystem::GetOpenFileEntry(u32 handle, OpenFileEntry *out) {
 }
 
 void ISOFileSystem::UpdateOpenFileEntry(u32 handle, const OpenFileEntry &updated) {
+	StutterMonitor::ScopedLockTimer lockTimer("ISOFileSystem::entriesMutex_");
 	std::lock_guard<std::mutex> guard(entriesMutex_);
 	EntryMap::iterator iter = entries.find(handle);
 	if (iter != entries.end()) {

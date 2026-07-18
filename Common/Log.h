@@ -58,6 +58,7 @@ enum class Log {
 	UI,
 	IAP,
 	Forwarder,  // Switch NRO Home Screen forwarder creation (Switch::Forwarder namespace).
+	Stutter,  // Frame-drop diagnostics (StutterMonitor).
 
 	sceAudio,
 	sceCtrl,

@@ -34,6 +34,7 @@
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
 #include "Common/Serialize/SerializeMap.h"
+#include "Common/StutterMonitor.h"
 #include "Common/TimeUtil.h"
 #include "Core/Config.h"
 #include "Core/CoreTiming.h"
@@ -392,13 +393,33 @@ static bool FrameTimingThrottled() {
 	return FrameTimingLimit() != 0;
 }
 
-static void DoFrameDropLogging(float scaledTimestep) {
-	if (lastFrameTime != 0.0 && !wasPaused && lastFrameTime + scaledTimestep < curFrameTime) {
-		const double actualTimestep = curFrameTime - lastFrameTime;
+// Keeps GPU/kernel debug-stat collection forced on for as long as the STUTTER log
+// channel is enabled, so StutterMonitor::Tick() below always has real gpuStats/
+// kernelStats numbers to report rather than stale zeros. Edge-triggered against the
+// existing ref-counted PSP_ForceDebugStats (Core/System.cpp) so toggling the STUTTER
+// channel on/off at any time (e.g. from the log config screen) is reflected promptly.
+static void UpdateStutterMonitorDebugStatsForcing(bool stutterEnabled) {
+	static bool forcedOn = false;
+	if (stutterEnabled != forcedOn) {
+		PSP_ForceDebugStats(stutterEnabled);
+		forcedOn = stutterEnabled;
+	}
+}
 
+static void DoFrameDropLogging(float scaledTimestep) {
+	bool didDrop = lastFrameTime != 0.0 && !wasPaused && lastFrameTime + scaledTimestep < curFrameTime;
+	const double actualTimestep = didDrop ? curFrameTime - lastFrameTime : scaledTimestep;
+
+	if (didDrop && g_Config.bLogFrameDrops) {
 		char stats[4096];
 		__DisplayGetDebugStats(stats, sizeof(stats));
 		NOTICE_LOG(Log::sceDisplay, "Dropping frames - budget = %.2fms / %.1ffps, actual = %.2fms (+%.2fms) / %.1ffps\n%s", scaledTimestep * 1000.0, 1.0 / scaledTimestep, actualTimestep * 1000.0, (actualTimestep - scaledTimestep) * 1000.0, 1.0 / actualTimestep, stats);
+	}
+
+	bool stutterEnabled = StutterMonitor::IsEnabled();
+	UpdateStutterMonitorDebugStatsForcing(stutterEnabled);
+	if (stutterEnabled) {
+		StutterMonitor::Tick(didDrop, scaledTimestep * 1000.0, actualTimestep * 1000.0, gpuStats.msProcessingDisplayLists, kernelStats.msInSyscalls);
 	}
 }
 
@@ -425,9 +446,10 @@ static void DoFrameTiming(bool throttle, bool *skipFrame, float scaledTimestep, 
 	}
 	curFrameTime = time_now_d();
 
-	if (g_Config.bLogFrameDrops) {
-		DoFrameDropLogging(scaledTimestep);
-	}
+	// Handles both the legacy bLogFrameDrops NOTICE_LOG and the STUTTER channel
+	// internally, since the STUTTER channel's accumulators need resetting every frame
+	// regardless of the legacy setting.
+	DoFrameDropLogging(scaledTimestep);
 
 	// Auto-frameskip automatically if speed limit is set differently than the default.
 	int frameSkipNum = g_Config.iFrameSkip;

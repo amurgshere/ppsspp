@@ -6,6 +6,7 @@
 #include "Common/VR/PPSSPPVR.h"
 
 #include "Common/Log.h"
+#include "Common/StutterMonitor.h"
 #include "Common/TimeUtil.h"
 #include "Common/MemoryUtil.h"
 #include "Common/StringUtils.h"
@@ -383,9 +384,13 @@ void GLRenderManager::BeginFrame(bool enableProfiling) {
 	{
 		std::unique_lock<std::mutex> lock(frameData.fenceMutex);
 		VLOG("PUSH: BeginFrame (curFrame = %d, readyForFence = %d, time=%0.3f)", curFrame, (int)frameData.readyForFence, time_now_d());
+		bool timeIt = !frameData.readyForFence && StutterMonitor::IsEnabled();
+		double waitStart = timeIt ? time_now_d() : 0.0;
 		while (!frameData.readyForFence) {
 			frameData.fenceCondVar.wait(lock);
 		}
+		if (timeIt)
+			StutterMonitor::AddGpuSyncWait((time_now_d() - waitStart) * 1000.0);
 		frameData.readyForFence = false;
 	}
 

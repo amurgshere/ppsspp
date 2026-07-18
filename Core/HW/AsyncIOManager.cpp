@@ -22,6 +22,8 @@
 #include "Common/Serialize/SerializeFuncs.h"
 #include "Common/Serialize/SerializeMap.h"
 #include "Common/Serialize/SerializeSet.h"
+#include "Common/StutterMonitor.h"
+#include "Common/TimeUtil.h"
 #include "Core/MIPS/MIPS.h"
 #include "Core/Reporting.h"
 #include "Core/HW/AsyncIOManager.h"
@@ -132,13 +134,19 @@ void AsyncIOManager::ProcessEvent(AsyncIOEvent ev) {
 
 void AsyncIOManager::Read(u32 handle, u8 *buf, size_t bytes, u32 invalidateAddr) {
 	int usec = 0;
+	double startTime = StutterMonitor::IsEnabled() ? time_now_d() : 0.0;
 	s64 result = pspFileSystem.ReadFile(handle, buf, bytes, usec);
+	if (startTime != 0.0)
+		StutterMonitor::AddIOTime(handle, false, bytes, (time_now_d() - startTime) * 1000.0);
 	EventResult(handle, AsyncIOResult(result, usec, invalidateAddr));
 }
 
 void AsyncIOManager::Write(u32 handle, const u8 *buf, size_t bytes) {
 	int usec = 0;
+	double startTime = StutterMonitor::IsEnabled() ? time_now_d() : 0.0;
 	s64 result = pspFileSystem.WriteFile(handle, buf, bytes, usec);
+	if (startTime != 0.0)
+		StutterMonitor::AddIOTime(handle, true, bytes, (time_now_d() - startTime) * 1000.0);
 	EventResult(handle, AsyncIOResult(result, usec));
 }
 

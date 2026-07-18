@@ -34,6 +34,7 @@
 #include "Common/Thread/Waitable.h"
 #include "Common/Thread/ThreadManager.h"
 #include "Common/Log.h"
+#include "Common/StutterMonitor.h"
 #include "Common/TimeUtil.h"
 
 #define MK_FOURCC(str) (str[0] | ((uint8_t)str[1] << 8) | ((uint8_t)str[2] << 16) | ((uint8_t)str[3] << 24))
@@ -152,7 +153,12 @@ bool ReplacedTexture::Poll(double budget) {
 	case ReplacementState::ACTIVE:
 	case ReplacementState::NOT_FOUND:
 		if (threadWaitable_) {
-			if (!threadWaitable_->WaitFor(budget)) {
+			bool timeIt = StutterMonitor::IsEnabled();
+			double waitStart = timeIt ? time_now_d() : 0.0;
+			bool ready = threadWaitable_->WaitFor(budget);
+			if (timeIt)
+				StutterMonitor::AddTextureAsyncWait((time_now_d() - waitStart) * 1000.0, !ready);
+			if (!ready) {
 				lastUsed_ = now;
 				return false;
 			}
@@ -184,7 +190,12 @@ bool ReplacedTexture::Poll(double budget) {
 	threadWaitable_ = new LimitedWaitable();
 	SetState(ReplacementState::PENDING);
 	g_threadManager.EnqueueTask(new ReplacedTextureTask(vfs_, *this, threadWaitable_));
-	if (threadWaitable_->WaitFor(budget)) {
+	bool timeIt = StutterMonitor::IsEnabled();
+	double waitStart = timeIt ? time_now_d() : 0.0;
+	bool ready = threadWaitable_->WaitFor(budget);
+	if (timeIt)
+		StutterMonitor::AddTextureAsyncWait((time_now_d() - waitStart) * 1000.0, !ready);
+	if (ready) {
 		// If we successfully wait here, we're done. The thread will set state accordingly.
 		_assert_(State() == ReplacementState::ACTIVE || State() == ReplacementState::NOT_FOUND || State() == ReplacementState::CANCEL_INIT);
 		delete threadWaitable_;

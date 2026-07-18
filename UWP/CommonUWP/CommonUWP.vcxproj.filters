@@ -133,6 +133,7 @@
     <ClCompile Include="..\..\Common\SysError.cpp" />
     <ClCompile Include="..\..\Common\OSVersion.cpp" />
     <ClCompile Include="..\..\Common\StringUtils.cpp" />
+    <ClCompile Include="..\..\Common\StutterMonitor.cpp" />
     <ClCompile Include="..\..\Common\Thunk.cpp" />
     <ClCompile Include="..\..\Common\TimeUtil.cpp" />
     <ClCompile Include="..\..\Common\x64Analyzer.cpp" />
@@ -557,6 +558,7 @@
     <ClInclude Include="..\..\Common\RiscVEmitter.h" />
     <ClInclude Include="..\..\Common\OSVersion.h" />
     <ClInclude Include="..\..\Common\StringUtils.h" />
+    <ClInclude Include="..\..\Common\StutterMonitor.h" />
     <ClInclude Include="..\..\Common\Swap.h" />
     <ClInclude Include="..\..\Common\SysError.h" />
     <ClInclude Include="..\..\Common\Thunk.h" />

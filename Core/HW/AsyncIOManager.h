@@ -24,6 +24,8 @@
 #include <map>
 #include <set>
 
+#include "Common/StutterMonitor.h"
+#include "Common/TimeUtil.h"
 #include "Core/Core.h"
 
 #include "Core/System.h"
@@ -230,7 +232,11 @@ public:
 
 			while (AsyncIOEventType(ev) != IO_EVENT_INVALID) {
 				guard.unlock();
+				bool timeIt = StutterMonitor::IsEnabled();
+				double busyStart = timeIt ? time_now_d() : 0.0;
 				ProcessEventIfApplicable(ev, globalticks);
+				if (timeIt)
+					StutterMonitor::AddIOThreadBusy((time_now_d() - busyStart) * 1000.0);
 				guard.lock();
 				ev = GetNextEvent();
 			}
