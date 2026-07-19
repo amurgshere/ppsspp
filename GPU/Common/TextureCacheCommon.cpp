@@ -32,6 +32,7 @@
 #include "Common/Math/math_util.h"
 #include "Common/GPU/thin3d.h"
 #include "Core/HDRemaster.h"
+#include "Core/Compatibility.h"
 #include "Core/Config.h"
 #include "Core/Debugger/MemBlockInfo.h"
 #include "Core/System.h"
@@ -198,6 +199,26 @@ void TextureCacheCommon::StartFrame() {
 		clearCacheNextFrame_ = false;
 	} else {
 		Decimate(nullptr, false);
+	}
+
+	PollPendingAsyncDecodes();
+}
+
+void TextureCacheCommon::PollAndTimeAsyncDecode(TexCacheEntry *entry) {
+	bool timeIt = StutterMonitor::IsEnabled();
+	double swapStart = timeIt ? time_now_d() : 0.0;
+	PollAsyncBuildTexture(entry);
+	if (timeIt && !(entry->status & TexCacheEntry::STATUS_DECODE_PENDING)) {
+		StutterMonitor::AddTexSwapIn((time_now_d() - swapStart) * 1000.0);
+	}
+}
+
+void TextureCacheCommon::PollPendingAsyncDecodes() {
+	for (auto &pair : cache_) {
+		TexCacheEntry *entry = pair.second.get();
+		if (entry->status & TexCacheEntry::STATUS_DECODE_PENDING) {
+			PollAndTimeAsyncDecode(entry);
+		}
 	}
 }
 
@@ -921,6 +942,19 @@ bool TextureCacheCommon::IsVideo(u32 texaddr) const {
 		}
 	}
 	return false;
+}
+
+int TextureCacheCommon::GetAsyncTextureDecodeLimit() const {
+	int setting = g_Config.iAsyncTextureDecodeLimit;
+	if (setting < 0) {
+		// "Default": defer to compat.ini, which stores the limit directly (0 = off, matching
+		// the config-off case) rather than the UI's compact 1..7 log2 encoding below.
+		return PSP_CoreParameter().compat.flags().AsyncTextureDecodeLimit;
+	}
+	if (setting == 0) {
+		return 0;
+	}
+	return 1 << (setting - 1);
 }
 
 void TextureCacheCommon::HandleTextureChange(TexCacheEntry *const entry, const char *reason, bool initialMatch, bool doDelete) {
@@ -2169,6 +2203,7 @@ void TextureCacheCommon::ApplyTexture(bool doBind) {
 	UpdateMaxSeenV(entry, gstate.isModeThrough());
 
 	bool wasDecodePending = (entry->status & TexCacheEntry::STATUS_DECODE_PENDING) != 0;
+	bool wasDeferred = (entry->status & TexCacheEntry::STATUS_DECODE_DEFERRED) != 0;
 	if (wasDecodePending && !nextNeedsRebuild_) {
 		// A background decode is already in flight for this entry (see AsyncTextureDecode.h),
 		// and SetTexture() found no reason to rebuild -- keep waiting. Hash rechecking is
@@ -2176,7 +2211,24 @@ void TextureCacheCommon::ApplyTexture(bool doBind) {
 		// deferring a periodic reliability recheck that long is a non-issue. entry->texturePtr
 		// is always valid here (either the placeholder or a previously finished decode), so the
 		// draw calls below work unchanged regardless of whether Poll() finishes anything now.
-		PollAsyncBuildTexture(entry);
+		// Also polled independently every frame by PollPendingAsyncDecodes() (StartFrame()),
+		// so this call here usually finds nothing new -- kept so a decode that finishes and
+		// is immediately needed for this draw call doesn't wait an extra frame.
+		PollAndTimeAsyncDecode(entry);
+	} else if (wasDeferred && !nextNeedsRebuild_) {
+		// Only a minimal (1x1) placeholder is bound so far -- the concurrent-decode budget
+		// was full when this entry first wanted to build. Check whether a slot has freed up
+		// since; entry->texturePtr is always valid here either way (the minimal placeholder),
+		// so the draw calls below work unchanged regardless of the outcome.
+		bool timeIt = StutterMonitor::IsEnabled();
+		double swapStart = timeIt ? time_now_d() : 0.0;
+		PollDeferredBuildTexture(entry);
+		if (timeIt && !(entry->status & TexCacheEntry::STATUS_DECODE_DEFERRED)) {
+			// Promoted to a real in-flight decode this call -- record the same real-size
+			// placeholder create/upload/mip-gen cost StartRealAsyncDecode always pays,
+			// just happening later (on promotion) instead of at the initial build.
+			StutterMonitor::AddTexSwapIn((time_now_d() - swapStart) * 1000.0);
+		}
 	} else {
 		if (wasDecodePending) {
 			// SetTexture() determined this address now holds different data/params than the
@@ -2185,6 +2237,11 @@ void TextureCacheCommon::ApplyTexture(bool doBind) {
 			// ignored -- otherwise entry->textureName is left set when BuildTexture()/
 			// StartAsyncBuildTexture() run below, violating their "no existing texture" precondition.
 			CancelAsyncBuildTexture(entry);
+		}
+		if (wasDeferred) {
+			// Same reasoning as the CancelAsyncBuildTexture() case above, for a deferred
+			// (not-yet-started) decode instead of one already in flight.
+			CancelDeferredBuildTexture(entry);
 		}
 		if (nextNeedsRebuild_) {
 			// Regardless of hash fails or otherwise, if this is a video, mark it frequently changing.

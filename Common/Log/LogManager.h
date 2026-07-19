@@ -152,6 +152,14 @@ public:
 	void SetFileLogPath(const Path &filename);
 	const Path &GetLogFilePath() const { return logFilename_; }
 
+	// Closes the current log file (if open), deletes it, then reopens a fresh one at the
+	// same path (if file logging is enabled).
+	void DeleteCurrentLogFile();
+	// Closes the current log file (if open), renames it by inserting an end-timestamp
+	// before its extension, then reopens a fresh one at the original path (if file
+	// logging is enabled).
+	void StartNewLogFile();
+
 	void SaveConfig(Section *section);
 	void LoadConfig(const Section *section);
 
@@ -191,6 +199,12 @@ private:
 	FILE *fp_ = nullptr;
 	bool logFileOpenFailed_ = false;
 	Path logFilename_;
+
+	// Must be called with logFileLock_ held. Closes fp_ if open.
+	void CloseLogFileLocked();
+	// Must be called with logFileLock_ held. Opens fp_ at logFilename_ if file logging
+	// is enabled and a path is set.
+	void ReopenLogFileLocked();
 
 	// Ring buffer
 	RingbufferLog ringLog_;

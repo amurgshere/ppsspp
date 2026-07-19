@@ -208,6 +208,10 @@ struct TexCacheEntry {
 		STATUS_VIDEO = 0x10000,
 		STATUS_BGRA = 0x20000,
 		STATUS_DECODE_PENDING = 0x40000,  // Async decode in flight; see pendingDecode.
+		// Async decode wanted but the concurrent-decode budget was full; only a minimal
+		// (1x1) placeholder is bound so far, and no PendingTextureDecode/worker task exists
+		// yet. Retried every frame (see PollDeferredBuildTexture) until a slot frees up.
+		STATUS_DECODE_DEFERRED = 0x80000,
 	};
 
 	// TexStatus enum flag combination.
@@ -494,6 +498,38 @@ protected:
 	// background task hasn't finished yet; bounded by the same decode time StartAsyncBuildTexture
 	// would otherwise be waited on for anyway.
 	virtual void CancelAsyncBuildTexture(TexCacheEntry *const entry) {}
+	// Called every frame an entry has STATUS_DECODE_DEFERRED set, instead of the normal
+	// rehash/rebuild logic. Checks whether a concurrent-decode slot has freed up since the
+	// entry was deferred; if so, promotes it (deletes the minimal placeholder, creates a
+	// real one, starts the real decode); otherwise leaves the minimal placeholder bound for
+	// another frame. See StartAsyncBuildTexture's overflow case.
+	virtual void PollDeferredBuildTexture(TexCacheEntry *const entry) {}
+	// Called instead of PollDeferredBuildTexture() when SetTexture() has determined the
+	// address now holds different data/params than what was deferred -- discards the
+	// minimal placeholder so the caller can start a fresh rebuild for the new content.
+	virtual void CancelDeferredBuildTexture(TexCacheEntry *const entry) {}
+	// Polls PollAsyncBuildTexture() for every entry, whether or not ApplyTexture() happens to
+	// revisit it for a draw call this frame. Necessary because a completed background decode
+	// otherwise only gets swapped in (and its budget slot freed) when its own entry is drawn
+	// again -- if the game stops referencing that exact texture (e.g. it scrolled out of view
+	// mid-decode), the slot is held forever, which permanently stalls every later deferred
+	// entry once the budget is small (this is exactly what a limit of 1 or 2 hits in practice).
+	// Safe to call outside of ApplyTexture(), unlike PollDeferredBuildTexture(): finishing a
+	// pending decode only touches the snapshot captured when it started, never live gstate --
+	// see PollDeferredBuildTexture's own comment for why *its* promotion can't be swept the
+	// same way. Called once per frame from StartFrame().
+	void PollPendingAsyncDecodes();
+	// Shared by PollPendingAsyncDecodes() above and ApplyTexture()'s own per-draw-call poll:
+	// times PollAsyncBuildTexture() and records it via StutterMonitor::AddTexSwapIn() only
+	// when the poll actually finished this entry's decode this call, not for a no-op poll.
+	void PollAndTimeAsyncDecode(TexCacheEntry *entry);
+	// Max number of decodes StartAsyncBuildTexture should allow concurrently in flight
+	// (g_Config.iAsyncTextureDecodeLimit, translated and, if set to "Default", resolved
+	// against compat.ini's AsyncTextureDecodeLimit). 0 means the async path is fully off.
+	// Callers should fall back to the synchronous BuildTexture() once pendingAsyncDecodes_
+	// reaches this limit, rather than letting an unbounded burst of placeholder texture
+	// allocs/uploads/mip-gens pile up on the render thread in a single frame or two.
+	int GetAsyncTextureDecodeLimit() const;
 	virtual void UpdateCurrentClut(GEPaletteFormat clutFormat, u32 clutBase, bool clutIndexIsSimple) = 0;
 	bool CheckFullHash(TexCacheEntry *entry, bool &doDelete);
 
@@ -597,6 +633,20 @@ protected:
 
 	int decimationCounter_;
 	int texelsScaledThisFrame_ = 0;
+	// Count of PendingTextureDecode instances currently in flight (Start()'d, not yet
+	// finished/cancelled). Compared against GetAsyncTextureDecodeLimit() to decide whether
+	// StartAsyncBuildTexture should take the async path or fall back to synchronous.
+	int pendingAsyncDecodes_ = 0;
+	// Count of entries currently sitting on a minimal (1x1) placeholder, waiting for a real
+	// decode slot (STATUS_DECODE_DEFERRED). While this is nonzero, StartAsyncBuildTexture
+	// must not let a brand-new entry claim a freed slot ahead of them -- without that check,
+	// a sustained burst of newly-appearing textures can starve the deferred backlog
+	// indefinitely, since freshly-arriving entries and already-waiting ones otherwise compete
+	// for the same freed slot with no ordering between them, and new arrivals during a burst
+	// vastly outnumber the trickle of slots freed by finishing decodes. See
+	// PollPendingAsyncDecodes()'s doc comment for the related "orphaned pending slot" bug this
+	// is a sibling of.
+	int deferredCount_ = 0;
 	int timesInvalidatedAllThisFrame_ = 0;
 	double replacementTimeThisFrame_ = 0;
 	// Recomputed once per frame. Depends FPS and soon also config.

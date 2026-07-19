@@ -24,6 +24,16 @@ void AddLockWait(const char *lockName, double elapsedMs);
 // (TextureCacheCommon::BuildTexture) -- distinct from AddTextureAsyncWait, which only
 // covers the background-thread replacement-texture path.
 void AddTextureBuild(double elapsedMs);
+// Time the emu thread spent on the GPU-side "swap in" step of the async texture decode
+// path: either replacing a placeholder with the finished real texture
+// (TextureCacheGLES::FinishAsyncBuildTexture, once a background decode completes) or
+// promoting a deferred entry into a real in-flight decode once the concurrency budget
+// frees up (TextureCacheGLES::PollDeferredBuildTexture). Distinct from AddTextureBuild,
+// which only covers the *initial* placeholder-creation call from ApplyTexture -- this
+// covers the GPU texture-object create/upload/mip-gen cost paid later, when a pending or
+// deferred entry is polled and found ready to advance. Only call this when the poll
+// actually did that work this frame, not for a no-op "still waiting" poll.
+void AddTexSwapIn(double elapsedMs);
 // Time the CPU/emu thread spent blocked waiting for the GPU backend's render thread to
 // catch up (e.g. GLRenderManager::BeginFrame's fence wait). This is backpressure from
 // *whatever* the render thread is doing -- shader compile, texture upload, heavy draw

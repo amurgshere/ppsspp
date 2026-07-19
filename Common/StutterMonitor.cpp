@@ -19,6 +19,8 @@ static std::atomic<int64_t> g_texAsyncWaitUs{0};
 static std::atomic<int> g_texStillPendingCount{0};
 static std::atomic<int64_t> g_texBuildUs{0};
 static std::atomic<int> g_texBuildCount{0};
+static std::atomic<int64_t> g_texSwapInUs{0};
+static std::atomic<int> g_texSwapInCount{0};
 static std::atomic<int64_t> g_gpuSyncWaitUs{0};
 
 // NOT reset per-frame by ResetFrameAccumulators() -- this reflects live decode-queue depth,
@@ -65,6 +67,13 @@ void AddTextureBuild(double elapsedMs) {
 	g_texBuildCount.fetch_add(1, std::memory_order_relaxed);
 }
 
+void AddTexSwapIn(double elapsedMs) {
+	if (!IsEnabled())
+		return;
+	g_texSwapInUs.fetch_add(MsToUs(elapsedMs), std::memory_order_relaxed);
+	g_texSwapInCount.fetch_add(1, std::memory_order_relaxed);
+}
+
 void AddGpuSyncWait(double elapsedMs) {
 	if (!IsEnabled())
 		return;
@@ -99,6 +108,8 @@ static void ResetFrameAccumulators() {
 	g_texStillPendingCount.store(0, std::memory_order_relaxed);
 	g_texBuildUs.store(0, std::memory_order_relaxed);
 	g_texBuildCount.store(0, std::memory_order_relaxed);
+	g_texSwapInUs.store(0, std::memory_order_relaxed);
+	g_texSwapInCount.store(0, std::memory_order_relaxed);
 	g_gpuSyncWaitUs.store(0, std::memory_order_relaxed);
 	g_worstLockWaitUs.store(0, std::memory_order_relaxed);
 	g_worstLockName.store("", std::memory_order_relaxed);
@@ -111,12 +122,13 @@ void Tick(bool didDrop, double budgetMs, double actualMs, double gpuMs, double c
 
 	if (didDrop) {
 		WARN_LOG(Log::Stutter,
-			"Frame %.1fms (target %.1fms): IO=%lldB/%.1fms(%dops) ioThreadBusy=%.1fms texWait=%.1fms(%d still pending) texBuild=%.1fms(%dtex) asyncDecodesPending=%d gpuSyncWait=%.1fms worstLock=%.1fms(%s) gpu=%.1fms cpu=%.1fms",
+			"Frame %.1fms (target %.1fms): IO=%lldB/%.1fms(%dops) ioThreadBusy=%.1fms texWait=%.1fms(%d still pending) texBuild=%.1fms(%dtex) texSwapIn=%.1fms(%dtex) asyncDecodesPending=%d gpuSyncWait=%.1fms worstLock=%.1fms(%s) gpu=%.1fms cpu=%.1fms",
 			actualMs, budgetMs,
 			(long long)g_ioBytes.load(std::memory_order_relaxed), g_ioTimeUs.load(std::memory_order_relaxed) / 1000.0, g_ioOpCount.load(std::memory_order_relaxed),
 			g_ioThreadBusyUs.load(std::memory_order_relaxed) / 1000.0,
 			g_texAsyncWaitUs.load(std::memory_order_relaxed) / 1000.0, g_texStillPendingCount.load(std::memory_order_relaxed),
 			g_texBuildUs.load(std::memory_order_relaxed) / 1000.0, g_texBuildCount.load(std::memory_order_relaxed),
+			g_texSwapInUs.load(std::memory_order_relaxed) / 1000.0, g_texSwapInCount.load(std::memory_order_relaxed),
 			g_pendingDecodeCount.load(std::memory_order_relaxed),
 			g_gpuSyncWaitUs.load(std::memory_order_relaxed) / 1000.0,
 			g_worstLockWaitUs.load(std::memory_order_relaxed) / 1000.0, g_worstLockName.load(std::memory_order_relaxed),

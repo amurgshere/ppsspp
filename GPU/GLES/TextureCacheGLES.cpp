@@ -56,6 +56,27 @@ void TextureCacheGLES::SetFramebufferManager(FramebufferManagerGLES *fbManager) 
 }
 
 void TextureCacheGLES::ReleaseTexture(TexCacheEntry *entry, bool delete_them) {
+	if (entry->pendingDecode) {
+		// Entry evicted (Decimate/Clear/DeleteTexture) while a decode was still in flight --
+		// the reset() below blocks briefly if the worker hasn't finished (see
+		// PendingTextureDecode's destructor), then keeps the burst-throttle counter accurate.
+		entry->pendingDecode.reset();
+		entry->status &= ~TexCacheEntry::STATUS_DECODE_PENDING;
+		pendingAsyncDecodes_--;
+	}
+	if (entry->status & TexCacheEntry::STATUS_DECODE_DEFERRED) {
+		// Entry evicted while only a minimal placeholder was bound, still waiting in line
+		// for a real decode slot -- keeps deferredCount_ accurate (see its doc comment).
+		entry->status &= ~TexCacheEntry::STATUS_DECODE_DEFERRED;
+		deferredCount_--;
+		// TEMPORARY diagnostic for the bug #11 starvation investigation -- remove once
+		// confirmed/fixed.
+		auto diagIt = deferredDiagStartFrame_.find(entry->addr);
+		int framesWaited = diagIt != deferredDiagStartFrame_.end() ? gpuStats.numFlips - diagIt->second : -1;
+		WARN_LOG(Log::G3D, "ASYNCSTARVE evicted addr=%08x curFrame=%d framesWaited=%d",
+			entry->addr, gpuStats.numFlips, framesWaited);
+		deferredDiagStartFrame_.erase(entry->addr);
+	}
 	if (delete_them) {
 		if (entry->textureName) {
 			render_->DeleteTexture(entry->textureName);
@@ -360,7 +381,8 @@ void TextureCacheGLES::BuildTexture(TexCacheEntry *const entry) {
 }
 
 bool TextureCacheGLES::StartAsyncBuildTexture(TexCacheEntry *const entry) {
-	if (!g_Config.bAsyncTextureDecode) {
+	int limit = GetAsyncTextureDecodeLimit();
+	if (limit <= 0) {
 		return false;
 	}
 	// STATUS_CHANGE_FREQUENT: background decode can not outrun a texture that is rewritten
@@ -415,6 +437,34 @@ bool TextureCacheGLES::StartAsyncBuildTexture(TexCacheEntry *const entry) {
 		return false;
 	}
 
+	// The deferredCount_ > 0 check keeps a brand-new entry from cutting in front of an
+	// already-waiting deferred backlog the instant a slot frees -- without it, a sustained
+	// burst of newly-appearing textures (far more numerous than the trickle of slots that
+	// free up) can starve already-deferred entries indefinitely, since both compete for the
+	// same freed slot with no ordering between them otherwise.
+	if (pendingAsyncDecodes_ >= limit || deferredCount_ > 0) {
+		// Budget's full, or someone's already waiting in line for it. Bind a near-free
+		// placeholder and retry every frame (see PollDeferredBuildTexture) instead of either
+		// (a) falling back to the full synchronous decode -- which turned out to cause
+		// sustained stutter across an entire burst instead of one bounded hit, see memory --
+		// or (b) creating a full-size placeholder anyway, which would just reintroduce the
+		// GPU-side backlog this budget exists to prevent.
+		CreateDeferredPlaceholder(entry, plan);
+		entry->status |= TexCacheEntry::STATUS_DECODE_DEFERRED;
+		deferredCount_++;
+		// TEMPORARY diagnostic for the bug #11 starvation investigation -- remove once
+		// confirmed/fixed.
+		deferredDiagStartFrame_[entry->addr] = gpuStats.numFlips;
+		WARN_LOG(Log::G3D, "ASYNCSTARVE deferStart addr=%08x curFrame=%d deferredCount=%d pendingCount=%d limit=%d",
+			entry->addr, gpuStats.numFlips, deferredCount_, pendingAsyncDecodes_, limit);
+		return true;
+	}
+
+	StartRealAsyncDecode(entry, plan);
+	return true;
+}
+
+void TextureCacheGLES::StartRealAsyncDecode(TexCacheEntry *const entry, const BuildTexturePlan &plan) {
 	_assert_(!entry->textureName);
 
 	Draw::DataFormat dstFmt = GetDestFormat(GETextureFormat(entry->format), gstate.getClutPaletteFormat());
@@ -485,7 +535,81 @@ bool TextureCacheGLES::StartAsyncBuildTexture(TexCacheEntry *const entry) {
 	entry->pendingDecode = std::move(pending);
 	entry->pendingDecode->Start(this);
 	entry->status |= TexCacheEntry::STATUS_DECODE_PENDING;
-	return true;
+	pendingAsyncDecodes_++;
+}
+
+void TextureCacheGLES::CreateDeferredPlaceholder(TexCacheEntry *const entry, const BuildTexturePlan &plan) {
+	_assert_(!entry->textureName);
+
+	Draw::DataFormat dstFmt = GetDestFormat(GETextureFormat(entry->format), gstate.getClutPaletteFormat());
+	int bpp = (int)Draw::DataFormatSizeInBytes(dstFmt);
+
+	entry->textureName = render_->CreateTexture(GL_TEXTURE_2D, 1, 1, 1, 1);
+	u8 *placeholder = new u8[bpp];
+	memset(placeholder, 0x80, bpp);
+	render_->TextureImage(entry->textureName, 0, 1, 1, 1, dstFmt, placeholder, GLRAllocType::NEW);
+	render_->FinalizeTexture(entry->textureName, 1, false);
+}
+
+void TextureCacheGLES::PollDeferredBuildTexture(TexCacheEntry *const entry) {
+	// TEMPORARY diagnostic for the bug #11 starvation investigation -- remove once
+	// confirmed/fixed.
+	int framesWaited = 0;
+	auto diagIt = deferredDiagStartFrame_.find(entry->addr);
+	if (diagIt != deferredDiagStartFrame_.end()) {
+		framesWaited = gpuStats.numFlips - diagIt->second;
+	}
+
+	int limit = GetAsyncTextureDecodeLimit();
+	if (limit <= 0 || pendingAsyncDecodes_ >= limit) {
+		// Still no room -- keep showing the minimal placeholder another frame. Only log
+		// every 15th frame (~4x/sec) once it's been waiting a while, to avoid flooding the
+		// log for an entry that's polled every frame it's drawn.
+		if (framesWaited > 0 && framesWaited % 15 == 0) {
+			WARN_LOG(Log::G3D, "ASYNCSTARVE stillWaiting addr=%08x curFrame=%d framesWaited=%d pendingCount=%d deferredCount=%d limit=%d",
+				entry->addr, gpuStats.numFlips, framesWaited, pendingAsyncDecodes_, deferredCount_, limit);
+		}
+		return;
+	}
+
+	BuildTexturePlan plan;
+	if (!PrepareBuildTexture(plan, entry)) {
+		// Shouldn't normally happen (nothing about the entry changed since it was deemed
+		// eligible), but if it does, just keep waiting rather than getting stuck.
+		WARN_LOG(Log::G3D, "ASYNCSTARVE prepareFailed addr=%08x curFrame=%d framesWaited=%d",
+			entry->addr, gpuStats.numFlips, framesWaited);
+		return;
+	}
+
+	GLRTexture *dummy = entry->textureName;
+	entry->textureName = nullptr;
+	StartRealAsyncDecode(entry, plan);
+	if (dummy) {
+		render_->DeleteTexture(dummy);
+	}
+	entry->status &= ~TexCacheEntry::STATUS_DECODE_DEFERRED;
+	deferredCount_--;
+	WARN_LOG(Log::G3D, "ASYNCSTARVE promoted addr=%08x curFrame=%d framesWaited=%d deferredCountAfter=%d",
+		entry->addr, gpuStats.numFlips, framesWaited, deferredCount_);
+	deferredDiagStartFrame_.erase(entry->addr);
+}
+
+void TextureCacheGLES::CancelDeferredBuildTexture(TexCacheEntry *const entry) {
+	if (entry->textureName) {
+		render_->DeleteTexture(entry->textureName);
+		entry->textureName = nullptr;
+	}
+	if (entry->status & TexCacheEntry::STATUS_DECODE_DEFERRED) {
+		deferredCount_--;
+		// TEMPORARY diagnostic for the bug #11 starvation investigation -- remove once
+		// confirmed/fixed.
+		auto diagIt = deferredDiagStartFrame_.find(entry->addr);
+		int framesWaited = diagIt != deferredDiagStartFrame_.end() ? gpuStats.numFlips - diagIt->second : -1;
+		WARN_LOG(Log::G3D, "ASYNCSTARVE cancelled addr=%08x curFrame=%d framesWaited=%d",
+			entry->addr, gpuStats.numFlips, framesWaited);
+		deferredDiagStartFrame_.erase(entry->addr);
+	}
+	entry->status &= ~TexCacheEntry::STATUS_DECODE_DEFERRED;
 }
 
 void TextureCacheGLES::PollAsyncBuildTexture(TexCacheEntry *const entry) {
@@ -498,6 +622,7 @@ void TextureCacheGLES::PollAsyncBuildTexture(TexCacheEntry *const entry) {
 void TextureCacheGLES::CancelAsyncBuildTexture(TexCacheEntry *const entry) {
 	// pendingDecode's destructor blocks briefly if the background task hasn't finished yet.
 	entry->pendingDecode.reset();
+	pendingAsyncDecodes_--;
 	if (entry->textureName) {
 		render_->DeleteTexture(entry->textureName);
 		entry->textureName = nullptr;
@@ -534,6 +659,7 @@ void TextureCacheGLES::FinishAsyncBuildTexture(TexCacheEntry *const entry) {
 
 	entry->status &= ~TexCacheEntry::STATUS_DECODE_PENDING;
 	entry->pendingDecode.reset();
+	pendingAsyncDecodes_--;
 }
 
 Draw::DataFormat TextureCacheGLES::GetDestFormat(GETextureFormat format, GEPaletteFormat clutFormat) {

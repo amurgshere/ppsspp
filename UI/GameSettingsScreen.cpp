@@ -599,7 +599,8 @@ void GameSettingsScreen::CreateGraphicsSettings(UI::ViewGroup *graphicsSettings)
 	graphicsSettings->Add(new SettingHint(gr->T("Lazy texture caching Tip", "Faster, but can cause text problems in a few games")));
 
 	if (GetGPUBackend() == GPUBackend::OPENGL) {
-		CheckBox *asyncTextureDecode = graphicsSettings->Add(new CheckBox(&g_Config.bAsyncTextureDecode, gr->T("Async texture decode", "Async texture decode (speedup)")));
+		static const char *asyncTextureDecodeLimits[] = { "Default", "Off", "1", "2", "4", "8", "16", "32", "64" };
+		PopupMultiChoice *asyncTextureDecode = graphicsSettings->Add(new PopupMultiChoice(&g_Config.iAsyncTextureDecodeLimit, gr->T("Async texture decode limit", "Async texture decode limit (speedup)"), asyncTextureDecodeLimits, -1, ARRAY_SIZE(asyncTextureDecodeLimits), I18NCat::GRAPHICS, screenManager()));
 		asyncTextureDecode->SetDisabledPtr(&g_Config.bSoftwareRendering);
 		graphicsSettings->Add(new SettingHint(gr->T("Async texture decode Tip", "Smooths out stutter from decoding new textures, may cause a brief flash on some")));
 	}

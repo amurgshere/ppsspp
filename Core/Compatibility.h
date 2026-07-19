@@ -122,6 +122,7 @@ struct CompatFlags {
 	float SpriteBorderFix;
 	bool DisableSmart2DTexFiltering;
 	int IOThreadCount;
+	int AsyncTextureDecodeLimit;
 };
 
 struct VRCompat {

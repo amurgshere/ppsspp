@@ -773,6 +773,12 @@ public:
 		textPadding_ = p;
 	}
 	void AppendToLabel(std::string_view suffix) override { text_ += std::string(suffix); }
+	// Overrides the theme's item text color. Used to mark an action-style Choice (e.g.
+	// a destructive/irreversible one) as visually distinct from ordinary menu items.
+	void SetTextColor(uint32_t color) {
+		textColor_ = color;
+		hasTextColor_ = true;
+	}
 
 protected:
 	void ClickInternal() override;
@@ -795,6 +801,8 @@ protected:
 	u32 drawTextFlags_ = 0;
 	bool hideTitle_ = false;
 	float shine_ = false;
+	uint32_t textColor_ = 0;
+	bool hasTextColor_ = false;
 
 private:
 	bool selected_ = false;

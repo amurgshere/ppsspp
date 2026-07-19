@@ -169,6 +169,17 @@ void DeveloperToolsScreen::CreateGeneralTab(UI::LinearLayout *list) {
 	fileLogging->OnClick.Handle(this, &DeveloperToolsScreen::OnFileLoggingChanged);
 	fileLogging->SetEnabledPtr(&g_Config.bEnableLogging);
 
+	// Maroon, not the theme's usual red/error color -- these are actions, not warnings.
+	const uint32_t logActionColor = 0xFF000080;
+	Choice *deleteLogFile = list->Add(new Choice(dev->T("Delete Current Log File")));
+	deleteLogFile->OnClick.Handle(this, &DeveloperToolsScreen::OnDeleteCurrentLogFile);
+	deleteLogFile->SetTextColor(logActionColor);
+	deleteLogFile->SetEnabledPtr(&g_Config.bEnableFileLogging);
+	Choice *startNewLogFile = list->Add(new Choice(dev->T("Copy and Start new Log File")));
+	startNewLogFile->OnClick.Handle(this, &DeveloperToolsScreen::OnStartNewLogFile);
+	startNewLogFile->SetTextColor(logActionColor);
+	startNewLogFile->SetEnabledPtr(&g_Config.bEnableFileLogging);
+
 	static const char *overrideModes[] = {"Toggle", "Hold", "Disabled"};
 	list->Add(new PopupMultiChoice(&g_Config.iLogVerbosityOverrideLevel, dev->T("Log verbosity override mapping level"), logLevelList, 1, logLevelListCount, I18NCat::DEVELOPER, screenManager()))->SetEnabledPtr(&g_Config.bEnableLogging);
 	list->Add(new PopupMultiChoice(&g_Config.iLogVerbosityOverrideMode, dev->T("Log verbosity override mapping mode"), overrideModes, 0, ARRAY_SIZE(overrideModes), I18NCat::DEVELOPER, screenManager()))->SetEnabledPtr(&g_Config.bEnableLogging);
@@ -656,6 +667,14 @@ void DeveloperToolsScreen::OnFileLoggingChanged(UI::EventParams &e) {
 	// immediately here too, so logging (e.g. for the Switch NRO Forwarder
 	// category) works from menu screens with no game running.
 	g_logManager.EnableOutput(LogOutput::File, g_Config.bEnableFileLogging);
+}
+
+void DeveloperToolsScreen::OnDeleteCurrentLogFile(UI::EventParams &e) {
+	g_logManager.DeleteCurrentLogFile();
+}
+
+void DeveloperToolsScreen::OnStartNewLogFile(UI::EventParams &e) {
+	g_logManager.StartNewLogFile();
 }
 
 void DeveloperToolsScreen::OnOpenTexturesIniFile(UI::EventParams &e) {

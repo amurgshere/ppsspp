@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <ctime>
 
 #include "Common/Data/Encoding/Utf8.h"
 
@@ -198,16 +199,25 @@ void LogManager::SetFileLogPath(const Path &filename) {
 		return;
 	}
 
-	if (fp_) {
-		fclose(fp_);
-		fp_ = nullptr;
-	}
+	std::lock_guard<std::mutex> guard(logFileLock_);
+	CloseLogFileLocked();
 
 	// Always store the path so it's available when File output is enabled later.
 	if (!filename.empty()) {
 		logFilename_ = filename;
 	}
 
+	ReopenLogFileLocked();
+}
+
+void LogManager::CloseLogFileLocked() {
+	if (fp_) {
+		fclose(fp_);
+		fp_ = nullptr;
+	}
+}
+
+void LogManager::ReopenLogFileLocked() {
 	if (!logFilename_.empty() && (outputs_ & LogOutput::File)) {
 		File::CreateFullPath(logFilename_.NavigateUp());
 		fp_ = File::OpenCFile(logFilename_, "at");
@@ -216,6 +226,42 @@ void LogManager::SetFileLogPath(const Path &filename) {
 			printf("Failed to open log file %s\n", logFilename_.c_str());
 		}
 	}
+}
+
+// Inserts an end-timestamp before the file extension, e.g. "log.txt" -> "log_20260719_083045.txt".
+static Path TimestampedLogPath(const Path &path) {
+	time_t now = time(nullptr);
+	struct tm tmVal;
+#if PPSSPP_PLATFORM(WINDOWS)
+	localtime_s(&tmVal, &now);
+#else
+	localtime_r(&now, &tmVal);
+#endif
+	char timestamp[32];
+	strftime(timestamp, sizeof(timestamp), "_%Y%m%d_%H%M%S", &tmVal);
+
+	std::string ext = path.GetFileExtension();
+	const std::string &full = path.ToString();
+	std::string base = full.substr(0, full.size() - ext.size());
+	return Path(base + timestamp + ext);
+}
+
+void LogManager::DeleteCurrentLogFile() {
+	std::lock_guard<std::mutex> guard(logFileLock_);
+	CloseLogFileLocked();
+	if (!logFilename_.empty()) {
+		File::Delete(logFilename_);
+	}
+	ReopenLogFileLocked();
+}
+
+void LogManager::StartNewLogFile() {
+	std::lock_guard<std::mutex> guard(logFileLock_);
+	CloseLogFileLocked();
+	if (!logFilename_.empty() && File::Exists(logFilename_)) {
+		File::Rename(logFilename_, TimestampedLogPath(logFilename_));
+	}
+	ReopenLogFileLocked();
 }
 
 void LogManager::SaveConfig(Section *section) {

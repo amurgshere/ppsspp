@@ -29,6 +29,8 @@ private:
 
 	void OnLoggingChanged(UI::EventParams &e);
 	void OnFileLoggingChanged(UI::EventParams &e);
+	void OnDeleteCurrentLogFile(UI::EventParams &e);
+	void OnStartNewLogFile(UI::EventParams &e);
 	void OnOpenTexturesIniFile(UI::EventParams &e);
 	void OnJitAffectingSetting(UI::EventParams &e);
 	void OnJitDebugTools(UI::EventParams &e);

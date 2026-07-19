@@ -80,8 +80,26 @@ private:
 	void PollAsyncBuildTexture(TexCacheEntry *const entry) override;
 	void CancelAsyncBuildTexture(TexCacheEntry *const entry) override;
 	void FinishAsyncBuildTexture(TexCacheEntry *const entry);
+	void PollDeferredBuildTexture(TexCacheEntry *const entry) override;
+	void CancelDeferredBuildTexture(TexCacheEntry *const entry) override;
+
+	// Shared by both StartAsyncBuildTexture (fresh room in the budget) and
+	// PollDeferredBuildTexture (room freed up after being deferred): builds the real-sized
+	// placeholder, snapshots the source data/gstate, and enqueues the actual decode task.
+	// Precondition: entry->textureName == nullptr and a slot is available.
+	void StartRealAsyncDecode(TexCacheEntry *const entry, const BuildTexturePlan &plan);
+	// Binds a 1x1 flat-color placeholder -- visually identical to the real placeholder
+	// (texture coordinates are normalized, so a single stretched texel reads the same as a
+	// flat full-size buffer) but with near-zero GPU alloc/upload/mip-gen cost, for entries
+	// that want async decode but the concurrent-decode budget is currently full.
+	void CreateDeferredPlaceholder(TexCacheEntry *const entry, const BuildTexturePlan &plan);
 
 	GLRenderManager *render_;
+
+	// TEMPORARY diagnostic for the bug #11 deferred-starvation investigation -- remove once
+	// confirmed/fixed. Tracks which frame each currently-deferred entry started waiting on,
+	// keyed by address, so ASYNCSTARVE log lines can report how long an entry has been stuck.
+	std::map<u32, int> deferredDiagStartFrame_;
 
 	GLRTexture *lastBoundTexture = nullptr;
 
