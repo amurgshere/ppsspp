@@ -16,7 +16,11 @@ docker exec ppsspp-build bash -c "apt-get update && apt-get install -y \
 docker exec ppsspp-build bash -c "dkp-pacman -S --noconfirm \
   switch-sdl2 switch-ffmpeg switch-dav1d switch-miniupnpc \
   switch-freetype switch-libpng switch-zlib switch-mesa"
+
+docker exec ppsspp-build bash -lc "bash /app/Switch/SDL2/build-patched-sdl2.sh"
 ```
+
+The last step replaces the stock `libSDL2.a` with one carrying `Switch/SDL2/switchaudio-no-hang.patch` (fixes the audio thread hanging forever: no sound + hang on exit). CMake refuses to configure against the stock library, and re-checks whenever the library file changes, so re-run the script after any `dkp-pacman` upgrade of `switch-sdl2`.
 
 ## Configure CMake (clean build dir required)
 

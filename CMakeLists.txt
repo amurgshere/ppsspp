@@ -302,7 +302,12 @@ endif()
 
 if(NOT LIBRETRO AND NOT IOS AND NOT MACOSX)
 	find_package(SDL2)
-	
+
+	if(USE_LIBNX AND SDL2_FOUND)
+		include(Switch/SDL2/RequirePatchedSDL2.cmake)
+		require_patched_switch_sdl2()
+	endif()
+
 	if(NOT USE_LIBNX)
 		find_package(SDL2_ttf)
 		find_package(Fontconfig)	

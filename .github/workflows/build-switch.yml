@@ -39,6 +39,9 @@ jobs:
             switch-sdl2 switch-ffmpeg switch-dav1d switch-miniupnpc \
             switch-freetype switch-libpng switch-zlib switch-mesa
 
+      - name: Build patched SDL2 (audio-thread hang fix)
+        run: bash Switch/SDL2/build-patched-sdl2.sh
+
       - name: Configure CMake
         run: |
           mkdir build-switch && cd build-switch && \

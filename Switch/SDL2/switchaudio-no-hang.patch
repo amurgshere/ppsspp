@@ -1,0 +1,120 @@
+--- a/src/audio/switch/SDL_switchaudio.c
++++ b/src/audio/switch/SDL_switchaudio.c
+@@ -125,54 +125,86 @@
+     return 0;
+ }
+ 
+-static void
+-SWITCHAUDIO_PlayDevice(_THIS)
++/* PPSSPP: libnx can move a wave buffer Queued -> Done without ever reporting Playing, so wait for any reusable buffer instead. */
++const char SDL_SwitchAudioNoHangPatchMarker[] = "PPSSPP_SWITCHAUDIO_NOHANG_V1";
++
++#define SWITCHAUDIO_NUM_BUFFERS 2
++#define SWITCHAUDIO_FRAME_WAIT_NS 10000000ULL
++#define SWITCHAUDIO_STALL_GRACE_NS 1000000000ULL
++
++static int
++SWITCHAUDIO_FindReusableBuffer(_THIS)
+ {
+-    int current = -1;
+-    for (int i = 0; i < 2; i++) {
++    for (int i = 0; i < SWITCHAUDIO_NUM_BUFFERS; i++) {
+         if (this->hidden->buffer[i].state == AudioDriverWaveBufState_Free
+             || this->hidden->buffer[i].state == AudioDriverWaveBufState_Done) {
+-            current = i;
+-            break;
++            return i;
+         }
+     }
++    return -1;
++}
++
++static void
++SWITCHAUDIO_PlayDevice(_THIS)
++{
++    int current;
++    Uint8 *ptr;
++
++    audrvUpdate(&this->hidden->driver);
+ 
+-    if (current >= 0) {
+-        Uint8 *ptr = (Uint8 *) (this->hidden->pool + (current * this->spec.size));
+-        memcpy(ptr, this->hidden->buffer_tmp, this->spec.size);
+-        armDCacheFlush(ptr, this->spec.size);
+-        audrvVoiceAddWaveBuf(&this->hidden->driver, 0, &this->hidden->buffer[current]);
++    current = SWITCHAUDIO_FindReusableBuffer(this);
++    if (current < 0) {
++        /* Only reachable when WaitDevice() returned early for shutdown: drop this chunk. */
++        return;
+     }
+-    else if (!audrvVoiceIsPlaying(&this->hidden->driver, 0)) {
++
++    ptr = (Uint8 *) this->hidden->pool + (current * this->spec.size);
++    memcpy(ptr, this->hidden->buffer_tmp, this->spec.size);
++    armDCacheFlush(ptr, this->spec.size);
++    audrvVoiceAddWaveBuf(&this->hidden->driver, 0, &this->hidden->buffer[current]);
++
++    if (!audrvVoiceIsPlaying(&this->hidden->driver, 0)) {
+         audrvVoiceStart(&this->hidden->driver, 0);
+     }
+ 
+     audrvUpdate(&this->hidden->driver);
++}
+ 
+-    if (current >= 0) {
+-        while (this->hidden->buffer[current].state != AudioDriverWaveBufState_Playing) {
+-            audrvUpdate(&this->hidden->driver);
+-            audrenWaitFrame();
+-        }
+-    }
+-    else {
+-        current = -1;
+-        for (int i = 0; i < 2; i++) {
+-            if (this->hidden->buffer[i].state == AudioDriverWaveBufState_Playing) {
+-                current = i;
+-                break;
+-            }
+-        }
+-        while (this->hidden->buffer[current].state == AudioDriverWaveBufState_Playing) {
+-            audrvUpdate(&this->hidden->driver);
+-            audrenWaitFrame();
+-        }
+-    }
++static Uint64
++SWITCHAUDIO_StallTimeoutNs(_THIS)
++{
++    const Uint64 two_buffers_ns = (2000000000ULL * this->spec.samples) / this->spec.freq;
++    return SWITCHAUDIO_STALL_GRACE_NS + two_buffers_ns;
++}
++
++static void
++SWITCHAUDIO_RestartVoice(_THIS)
++{
++    /* audrvVoiceStop() flags every queued buffer Done, so both become reusable again. */
++    audrvVoiceStop(&this->hidden->driver, 0);
++    audrvVoiceStart(&this->hidden->driver, 0);
++    audrvUpdate(&this->hidden->driver);
+ }
+ 
+ static void
+ SWITCHAUDIO_WaitDevice(_THIS)
+ {
++    const Uint64 start = armGetSystemTick();
++    const Uint64 timeout_ns = SWITCHAUDIO_StallTimeoutNs(this);
++
++    while (!SDL_AtomicGet(&this->shutdown)) {
++        audrvUpdate(&this->hidden->driver);
++        if (SWITCHAUDIO_FindReusableBuffer(this) >= 0) {
++            return;
++        }
++
++        if (armTicksToNs(armGetSystemTick() - start) > timeout_ns) {
++            SWITCHAUDIO_RestartVoice(this);
++            return;
++        }
++
++        eventWait(audrenGetFrameEvent(), SWITCHAUDIO_FRAME_WAIT_NS);
++    }
+ }
+ 
+ static Uint8
