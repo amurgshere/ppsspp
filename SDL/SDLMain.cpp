@@ -145,13 +145,12 @@ int getDisplayNumber(void) {
 	return displayNumber;
 }
 
-// Diagnostic for the Switch-specific no-sound-after-autoload bug: PPSSPP's own
-// mixing pipeline (HLE channel mix, host resampler/mix) was already confirmed
-// healthy via separate watchdogs in __sceAudio.cpp/AudioCommon.cpp, so this one
-// tracks whether the SDL audio callback is even being invoked at all - if the
-// underlying platform audio session stalls (e.g. hasn't been granted output
-// focus yet), SDL's mix thread can simply stop calling back, which those
-// in-callback watchdogs can never observe from the inside.
+#if PPSSPP_PLATFORM(SWITCH)
+constexpr bool kWatchAudioCallbackStalls = true;
+#else
+constexpr bool kWatchAudioCallbackStalls = false;
+#endif
+
 static std::atomic<double> g_lastAudioCallbackTime{0.0};
 static SDL_AudioDeviceID audioDev = 0;
 
@@ -160,9 +159,7 @@ void sdl_mixaudio_callback(void *userdata, Uint8 *stream, int len) {
 	NativeMix((short *)stream, len / (2 * 2), g_sampleRate, userdata);
 }
 
-// Called periodically from the main loop (not the audio thread) so a stalled
-// audio callback - one that stops firing entirely rather than firing with
-// silent data - is still detected. Logged at WARNING, transition-edge only.
+// Runs on the main loop, since a callback that stops firing can't report itself.
 static void CheckAudioCallbackHeartbeat() {
 	constexpr double kStallThresholdSeconds = 0.5;
 	constexpr double kCheckIntervalSeconds = 1.0;
@@ -190,6 +187,39 @@ static void CheckAudioCallbackHeartbeat() {
 	wasStalled = stalled;
 }
 
+static void LogAvailableAudioDevices() {
+	const int deviceCount = SDL_GetNumAudioDevices(0);
+	if (deviceCount <= 0) {
+		INFO_LOG(Log::Audio, "Failed to list audio devices: retval=%d", deviceCount);
+		return;
+	}
+	INFO_LOG(Log::Audio, "Available audio devices (%d):", deviceCount);
+	for (int i = 0; i < deviceCount; i++) {
+		const char *deviceName = SDL_GetAudioDeviceName(i, 0);
+		INFO_LOG(Log::Audio, " * '%s'", deviceName ? deviceName : "(null)");
+	}
+}
+
+static SDL_AudioDeviceID OpenAudioDeviceOrDefault(const std::string &deviceName, const SDL_AudioSpec &fmt) {
+	SDL_AudioDeviceID dev = 0;
+	if (!deviceName.empty()) {
+		INFO_LOG(Log::Audio, "Opening audio device: '%s'", deviceName.c_str());
+		dev = SDL_OpenAudioDevice(deviceName.c_str(), 0, &fmt, &g_retFmt, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+		if (dev <= 0) {
+			WARN_LOG(Log::Audio, "Failed to open audio device '%s': '%s'", deviceName.c_str(), SDL_GetError());
+		}
+	}
+	if (dev > 0) {
+		return dev;
+	}
+	INFO_LOG(Log::Audio, "Opening default audio device");
+	dev = SDL_OpenAudioDevice(nullptr, 0, &fmt, &g_retFmt, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+	if (dev <= 0) {
+		WARN_LOG(Log::Audio, "Failed to open default audio device: '%s'", SDL_GetError());
+	}
+	return dev;
+}
+
 // Must be called after NativeInit().
 static void InitSDLAudioDevice(const std::string &name = "") {
 	SDL_AudioSpec fmt;
@@ -206,42 +236,8 @@ static void InitSDLAudioDevice(const std::string &name = "") {
 		startDevice = g_Config.sAudioDevice;
 	}
 
-	// List available audio devices before trying to open, for debugging purposes.
-	// Logged at WARNING (not INFO) so this init sequence is visible with the
-	// verbosity users are expected to run with day-to-day, to help diagnose
-	// intermittent no-sound-on-launch reports without needing full INFO/NOTICE.
-	const int deviceCount = SDL_GetNumAudioDevices(0);
-	if (deviceCount > 0) {
-		WARN_LOG(Log::Audio, "Available audio devices (%d):", deviceCount);
-		for (int i = 0; i < deviceCount; i++) {
-			const char *deviceName = SDL_GetAudioDeviceName(i, 0);
-			WARN_LOG(Log::Audio, " * '%s'", deviceName ? deviceName : "(null)");
-		}
-	} else {
-		WARN_LOG(Log::Audio, "Failed to list audio devices: retval=%d", deviceCount);
-	}
-
-	WARN_LOG(Log::Audio, "Configured audio device (sAudioDevice): '%s'", g_Config.sAudioDevice.c_str());
-
-	audioDev = 0;
-	if (!startDevice.empty()) {
-		WARN_LOG(Log::Audio, "Opening audio device: '%s'", startDevice.c_str());
-		audioDev = SDL_OpenAudioDevice(startDevice.c_str(), 0, &fmt, &g_retFmt, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-		if (audioDev <= 0) {
-			WARN_LOG(Log::Audio, "Failed to open audio device '%s': '%s'", startDevice.c_str(), SDL_GetError());
-		}
-	}
-	if (audioDev <= 0) {
-		if (audioDev < 0) {
-			WARN_LOG(Log::Audio, "SDL: Error: '%s'. Trying the default audio device", SDL_GetError());
-		} else {
-			WARN_LOG(Log::Audio, "Opening default audio device");
-		}
-		audioDev = SDL_OpenAudioDevice(nullptr, 0, &fmt, &g_retFmt, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
-		if (audioDev <= 0) {
-			WARN_LOG(Log::Audio, "Failed to open default audio device: '%s'", SDL_GetError());
-		}
-	}
+	LogAvailableAudioDevices();
+	audioDev = OpenAudioDeviceOrDefault(startDevice, fmt);
 	if (audioDev <= 0) {
 		ERROR_LOG(Log::Audio, "Failed to open audio device '%s', second try. Giving up.", SDL_GetError());
 	} else {
@@ -257,23 +253,16 @@ static void InitSDLAudioDevice(const std::string &name = "") {
 			audioDev = 0;
 		} else {
 			SDL_PauseAudioDevice(audioDev, 0);
-			// Low-frequency event (init/reinit only, not hot-path) - logged at
-			// WARNING so it's visible without needing full INFO/NOTICE verbosity,
-			// to help diagnose intermittent no-sound-until-restart reports.
-			WARN_LOG(Log::Audio, "Audio device opened successfully: id=%d, freq=%d, samples=%d, channels=%d", (int)audioDev, g_retFmt.freq, g_retFmt.samples, g_retFmt.channels);
-			WARN_LOG(Log::Audio, "Audio driver='%s', device status after unpause=%d",
-				SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "(null)", (int)SDL_GetAudioDeviceStatus(audioDev));
+			INFO_LOG(Log::Audio, "Audio device opened: id=%d, driver='%s', freq=%d, samples=%d, channels=%d", (int)audioDev,
+				SDL_GetCurrentAudioDriver() ? SDL_GetCurrentAudioDriver() : "(null)", g_retFmt.freq, g_retFmt.samples, g_retFmt.channels);
 			g_lastAudioCallbackTime = 0.0;
 		}
 	}
-#if PPSSPP_PLATFORM(SWITCH)
-	WARN_LOG(Log::Audio, "__nx_applet_type=%u at audio init", __nx_applet_type);
-#endif
 }
 
 static void StopSDLAudioDevice() {
 	if (audioDev > 0) {
-		WARN_LOG(Log::Audio, "Stopping audio device: id=%d", (int)audioDev);
+		INFO_LOG(Log::Audio, "Stopping audio device: id=%d", (int)audioDev);
 		SDL_PauseAudioDevice(audioDev, 1);
 		SDL_CloseAudioDevice(audioDev);
 		audioDev = 0;
@@ -1449,19 +1438,19 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 		if (event.adevice.iscapture == 0) {
 			const char *name = SDL_GetAudioDeviceName(event.adevice.which, 0);
 			if (!name) {
-				WARN_LOG(Log::Audio, "Got bogus new audio device notification");
+				INFO_LOG(Log::Audio, "Got bogus new audio device notification");
 				break;
 			}
 			// Don't start auto switching for a couple of seconds, because some devices init on start.
 			bool doAutoSwitch = g_Config.bAutoAudioDevice;
 			if ((time_now_d() - g_audioStartTime) < 3.0) {
-				WARN_LOG(Log::Audio, "Ignoring new audio device: %s (current: %s)", name, g_Config.sAudioDevice.c_str());
+				INFO_LOG(Log::Audio, "Ignoring new audio device: %s (current: %s)", name, g_Config.sAudioDevice.c_str());
 				doAutoSwitch = false;
 			}
 			if (doAutoSwitch || g_Config.sAudioDevice == name) {
 				StopSDLAudioDevice();
 
-				WARN_LOG(Log::Audio, "!!! Auto-switching to new audio device: '%s'", name);
+				INFO_LOG(Log::Audio, "!!! Auto-switching to new audio device: '%s'", name);
 
 				InitSDLAudioDevice(name ? name : "");
 			}
@@ -1470,7 +1459,7 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 	case SDL_AUDIODEVICEREMOVED:
 		if (event.adevice.iscapture == 0 && event.adevice.which == audioDev) {
 			StopSDLAudioDevice();
-			WARN_LOG(Log::Audio, "Audio device removed, reselecting");
+			INFO_LOG(Log::Audio, "Audio device removed, reselecting");
 			InitSDLAudioDevice();
 		}
 		break;
@@ -2010,7 +1999,9 @@ int main(int argc, char *argv[]) {
 
 		inputTracker.MouseCaptureControl();
 
-		CheckAudioCallbackHeartbeat();
+		if (kWatchAudioCallbackStalls) {
+			CheckAudioCallbackHeartbeat();
+		}
 
 		bool renderThreadPaused = Native_IsWindowHidden() && g_Config.bPauseWhenMinimized && emuThreadState != (int)EmuThreadState::DISABLED;
 		if (emuThreadState != (int)EmuThreadState::DISABLED && !renderThreadPaused) {
